@@ -1,0 +1,888 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Procedural Dungeon</title>
+<style>
+  :root{
+    --bg:#12100e; --panel:#1c1813; --panel2:#241f18; --ink:#e8dcc0;
+    --muted:#9a8f78; --gold:#d8a94a; --stone:#3a332a; --stone2:#4a4235;
+    --good:#6fbf73; --bad:#d5674f; --accent:#c98b3a; --line:#3a3229;
+    --blood:#7a2e22;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:radial-gradient(1200px 800px at 50% -10%, #1e1a14, #0c0a08);
+    color:var(--ink); font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3{font-family:"Trattatello","Papyrus","Iowan Old Style",Georgia,serif; letter-spacing:.5px; margin:0}
+  a{color:var(--gold)}
+  .wrap{max-width:1240px;margin:0 auto;padding:14px 16px 40px}
+  header.top{
+    display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+    border-bottom:1px solid var(--line);padding-bottom:12px;margin-bottom:14px;
+  }
+  header.top h1{font-size:26px;color:var(--gold);text-shadow:0 1px 0 #000}
+  header.top .sub{color:var(--muted);font-size:13px}
+  .seedbox{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  input[type=text]{
+    background:#0e0c09;border:1px solid var(--stone2);color:var(--ink);
+    padding:7px 10px;border-radius:6px;font:inherit;font-size:14px;width:150px;
+  }
+  button{
+    background:linear-gradient(#2c261d,#1d1913);color:var(--ink);
+    border:1px solid var(--stone2);border-radius:6px;padding:7px 12px;
+    font:inherit;font-size:14px;cursor:pointer;transition:.12s;
+  }
+  button:hover:not(:disabled){border-color:var(--gold);color:#fff}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  button.primary{background:linear-gradient(#7a5a1e,#5c4315);border-color:var(--gold);color:#fff}
+  button.danger{border-color:var(--blood)}
+  .grid{display:grid;grid-template-columns:280px 1fr 320px;gap:14px;align-items:start}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;
+        box-shadow:inset 0 1px 0 #2f281f, 0 8px 20px rgba(0,0,0,.35)}
+  .card h2{font-size:18px;color:var(--gold);margin-bottom:8px;border-bottom:1px dashed var(--stone2);padding-bottom:6px}
+  .card h3{font-size:14px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin:12px 0 6px}
+
+  /* Character sheet */
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .stat{background:var(--panel2);border:1px solid var(--line);border-radius:8px;text-align:center;padding:8px 4px}
+  .stat .name{font-size:11px;color:var(--muted);letter-spacing:1px}
+  .stat .val{font-size:20px;color:var(--ink);font-weight:bold}
+  .stat .mod{font-size:12px;color:var(--gold)}
+  .bars .bar{margin:6px 0}
+  .bars .label{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:3px}
+  .meter{height:12px;background:#0e0c09;border-radius:6px;border:1px solid var(--line);overflow:hidden}
+  .meter > span{display:block;height:100%}
+  .meter.hp > span{background:linear-gradient(90deg,#7a2e22,#c0533c)}
+  .taglist{display:flex;flex-wrap:wrap;gap:6px}
+  .tag{background:var(--panel2);border:1px solid var(--stone2);border-radius:20px;padding:3px 9px;font-size:12px}
+  .tag .qty{color:var(--gold)}
+  .tag.wpn{border-color:#6b5a2e}
+  .tag.ally{border-color:#2e6b53}
+  .skills{display:flex;flex-wrap:wrap;gap:5px}
+  .skill{font-size:11.5px;color:var(--muted);background:#0e0c09;border:1px solid var(--line);border-radius:5px;padding:2px 7px}
+  .skill b{color:var(--ink)}
+  .skill.prof{border-color:var(--gold)}
+  .skill.prof b{color:var(--gold)}
+
+  /* Room view */
+  .roomwrap{display:flex;flex-direction:column;align-items:center;gap:10px}
+  .roommeta{display:flex;gap:10px;align-items:center;width:100%;justify-content:space-between}
+  .roommeta .depth{color:var(--gold);font-size:14px}
+  svg.room{width:100%;max-width:460px;height:auto;display:block;
+           filter:drop-shadow(0 10px 26px rgba(0,0,0,.5))}
+  .roomtitle{font-size:16px;color:var(--ink)}
+  .hint{color:var(--muted);font-size:12.5px;text-align:center;min-height:18px}
+  .actionsrow{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+
+  /* Minimap */
+  .minimap{margin-top:6px}
+  .mmgrid{display:grid;gap:3px;justify-content:center}
+  .mm{width:20px;height:20px;border-radius:4px;background:#0e0c09;border:1px solid var(--line)}
+  .mm.seen{background:#2a241b;border-color:var(--stone2)}
+  .mm.here{background:var(--gold);border-color:#fff;box-shadow:0 0 8px var(--gold)}
+
+  /* Resolution panel */
+  .encounter .etitle{font-size:18px;color:var(--gold);display:flex;align-items:center;gap:8px}
+  .encounter .edesc{color:var(--ink);font-size:14px;margin:8px 0 4px;line-height:1.45}
+  .encounter .estat{color:var(--muted);font-size:12.5px;margin-bottom:10px}
+  .opts{display:flex;flex-direction:column;gap:8px}
+  .opt{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:9px 10px;
+       display:flex;flex-direction:column;gap:3px;cursor:pointer;transition:.12s}
+  .opt:hover:not(.disabled){border-color:var(--gold)}
+  .opt.disabled{opacity:.42;cursor:not-allowed}
+  .opt .ol{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .opt .oname{font-size:14px;color:var(--ink)}
+  .opt .odc{font-size:12px;color:var(--gold);white-space:nowrap}
+  .opt .odetail{font-size:12px;color:var(--muted)}
+  .opt.method-item .oname:before{content:"\1F392  "}
+  .opt.method-check .oname:before{content:"\1F3B2  "}
+  .opt.method-combat .oname:before{content:"\2694\FE0F  "}
+  .opt.method-auto .oname:before{content:"\27A1\FE0F  "}
+  .empty{color:var(--muted);font-size:13px;text-align:center;padding:20px 6px}
+
+  .log{max-height:240px;overflow:auto;font-size:12.5px;line-height:1.5}
+  .log .le{padding:4px 0;border-bottom:1px dotted var(--line);color:var(--muted)}
+  .log .le b{color:var(--ink)}
+  .log .le.good b{color:var(--good)}
+  .log .le.bad b{color:var(--bad)}
+  .log .le.gold b{color:var(--gold)}
+
+  footer{color:var(--muted);font-size:12px;text-align:center;margin-top:24px}
+  @media (max-width:1080px){ .grid{grid-template-columns:1fr} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>&#9767; Procedural Dungeon</h1>
+      <div class="sub">Every door, trap &amp; monster resolves through your stats, skills, gear &amp; allies.</div>
+    </div>
+    <div class="seedbox">
+      <input id="seedInput" type="text" placeholder="seed&hellip;" />
+      <button id="newBtn" class="primary">&#9860; New Dungeon</button>
+      <button id="rerollChar" title="Roll a fresh adventurer">&#127922; New Hero</button>
+    </div>
+  </header>
+
+  <div class="grid">
+    <section class="card" id="sheet"><!-- character sheet --></section>
+
+    <section class="card">
+      <div class="roomwrap">
+        <div class="roommeta">
+          <div class="roomtitle" id="roomTitle">The Threshold</div>
+          <div class="depth" id="depthTag">Depth 1</div>
+        </div>
+        <svg class="room" id="roomSvg" viewBox="0 0 460 460" role="img" aria-label="Dungeon room"></svg>
+        <div class="hint" id="hint">Click an exit to travel, or an object to interact.</div>
+        <div class="actionsrow">
+          <button id="searchBtn">&#128269; Search Room</button>
+          <button id="restBtn">&#128293; Short Rest</button>
+        </div>
+        <div class="minimap">
+          <div class="hint" style="margin-bottom:4px">Explored &mdash; Depth <span id="mmDepth">1</span></div>
+          <div class="mmgrid" id="minimap"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div id="panel" class="encounter">
+        <div class="empty">Nothing selected.<br/>Choose a door or object in the room.</div>
+      </div>
+      <h3>Chronicle</h3>
+      <div class="log" id="log"></div>
+    </section>
+  </div>
+
+  <footer>
+    Seeded &amp; deterministic &mdash; share a seed to share a dungeon. Rolls are live d20s. Built for fun.
+  </footer>
+</div>
+
+<script>
+"use strict";
+/* =========================================================================
+   RNG  — deterministic, seed-driven world generation.
+   (Dice rolls during play use Math.random; only *generation* is seeded.)
+   ========================================================================= */
+function xmur3(str){
+  let h = 1779033703 ^ str.length;
+  for(let i=0;i<str.length;i++){
+    h = Math.imul(h ^ str.charCodeAt(i), 3432918353);
+    h = (h << 13) | (h >>> 19);
+  }
+  return function(){
+    h = Math.imul(h ^ (h >>> 16), 2246822507);
+    h = Math.imul(h ^ (h >>> 13), 3266489909);
+    return (h ^= h >>> 16) >>> 0;
+  };
+}
+function mulberry32(a){
+  return function(){
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function rngFor(){
+  const parts = Array.prototype.slice.call(arguments);
+  const seedGen = xmur3(WORLD.seed + "::" + parts.join("|"));
+  return mulberry32(seedGen());
+}
+function pick(rng, arr){ return arr[Math.floor(rng()*arr.length)]; }
+function pickWeighted(rng, table){
+  let total = 0; for(const t of table) total += t[1];
+  let r = rng()*total;
+  for(const t of table){ if((r-=t[1]) < 0) return t[0]; }
+  return table[table.length-1][0];
+}
+function d20(){ return 1 + Math.floor(Math.random()*20); }
+function roll(n,sides){ let s=0; for(let i=0;i<n;i++) s+=1+Math.floor(Math.random()*sides); return s; }
+
+/* =========================================================================
+   CHARACTER
+   ========================================================================= */
+const STAT_KEYS = ["STR","DEX","CON","INT","WIS","CHA"];
+const SKILLS = {
+  Athletics:"STR", Acrobatics:"DEX", Stealth:"DEX", SleightOfHand:"DEX",
+  Perception:"WIS", Investigation:"INT", Arcana:"INT", Religion:"WIS",
+  Persuasion:"CHA", Intimidation:"CHA"
+};
+function mod(score){ return Math.floor((score-10)/2); }
+function fmtMod(m){ return (m>=0?"+":"")+m; }
+
+function makeHero(seedStr){
+  const r = mulberry32(xmur3("hero::"+seedStr)());
+  const rollStat = function(){
+    const d=[0,0,0,0].map(function(){return 1+Math.floor(r()*6);}).sort(function(a,b){return a-b;});
+    return d[1]+d[2]+d[3];
+  };
+  const stats = {}; STAT_KEYS.forEach(function(k){ stats[k]=rollStat(); });
+  const con = mod(stats.CON);
+  const kits = [
+    { name:"Rogue",   prof:["Stealth","SleightOfHand","Perception","Acrobatics"],
+      items:[["Thieves' Tools","thieves_tools",1],["Iron Key","key",1],["Rope (50ft)","rope",1],["Torch","torch",2],["Healing Potion","potion_heal",1]],
+      weapons:[["Shortsword","DEX","1d6"],["Dagger","DEX","1d4"]], allies:[] },
+    { name:"Fighter", prof:["Athletics","Intimidation","Perception"],
+      items:[["Crowbar","crowbar",1],["Iron Key","key",1],["Torch","torch",2],["Healing Potion","potion_heal",2]],
+      weapons:[["Longsword","STR","1d8"],["Handaxe","STR","1d6"]], allies:[["Hound","combat",2]] },
+    { name:"Mage",    prof:["Arcana","Investigation","Religion"],
+      items:[["Scroll of Knock","scroll_knock",1],["Scroll of Dispel","scroll_dispel",1],["Torch","torch",1],["Holy Water","holy_water",1],["Healing Potion","potion_heal",1]],
+      weapons:[["Quarterstaff","STR","1d6"],["Firebolt","INT","1d10"]], allies:[] },
+    { name:"Ranger",  prof:["Athletics","Stealth","Perception","Investigation"],
+      items:[["Grappling Hook","grapple",1],["Rope (50ft)","rope",1],["Iron Key","key",1],["Torch","torch",2]],
+      weapons:[["Longbow","DEX","1d8"],["Shortsword","DEX","1d6"]], allies:[["Wolf","combat",2]] }
+  ];
+  const kit = kits[Math.floor(r()*kits.length)];
+  const maxHp = 20 + con*3 + Math.floor(r()*8);
+  return {
+    name: kit.name+" of the Deep", cls: kit.name, level: 3, prof: 2,
+    stats, maxHp, hp: maxHp, ac: 12 + mod(stats.DEX),
+    proficient: new Set(kit.prof),
+    inventory: kit.items.map(function(x){return {name:x[0],tag:x[1],qty:x[2]};}),
+    weapons: kit.weapons.map(function(x){return {name:x[0],stat:x[1],dmg:x[2]};}),
+    allies: kit.allies.map(function(x){return {name:x[0],type:x[1],bonus:x[2]};}),
+    gold: 0, buffs: []
+  };
+}
+function skillMod(ch, skill){
+  const stat = SKILLS[skill];
+  let m = mod(ch.stats[stat]);
+  if(ch.proficient.has(skill)) m += ch.prof;
+  for(const b of ch.buffs){ if(b.all || b.skill===skill) m += b.bonus; }
+  for(const a of ch.allies){ if(a.type===skill) m += 1; }
+  return m;
+}
+function hasItem(ch, tag){ return ch.inventory.some(function(i){return i.tag===tag && i.qty>0;}); }
+function consume(ch, tag, n){
+  n = n||1;
+  const it = ch.inventory.find(function(i){return i.tag===tag && i.qty>0;});
+  if(!it) return false;
+  it.qty -= n;
+  ch.inventory = ch.inventory.filter(function(i){return i.qty>0;});
+  return true;
+}
+function addItem(ch, name, tag, qty){
+  qty = qty||1;
+  const it = ch.inventory.find(function(i){return i.tag===tag;});
+  if(it) it.qty += qty; else ch.inventory.push({name:name,tag:tag,qty:qty});
+}
+function attackBonus(ch, wpn){ return mod(ch.stats[wpn.stat]) + ch.prof; }
+function partyCombat(ch){
+  let best = 0;
+  for(const w of ch.weapons) best = Math.max(best, attackBonus(ch,w));
+  for(const a of ch.allies) if(a.type==="combat") best += a.bonus;
+  return best;
+}
+
+/* =========================================================================
+   ENCOUNTERS — data-driven; each method lists a resolution path keyed to
+   stats / skills / items / allies. resolve() returns {ok,text,effects}.
+   ========================================================================= */
+function exitMethods(edge){
+  const dc = edge.dc;
+  switch(edge.type){
+    case "passage": return { icon:"🚪", title:"Open Passage",
+      desc:"An open archway leads onward.",
+      methods:[ {label:"Walk through", cls:"auto", detail:"No obstacle.",
+        resolve:function(){return {ok:true, text:"You step through the archway.", effects:{open:true}};}} ] };
+    case "locked": return { icon:"🔒", title:"Locked Door",
+      desc:"A heavy iron-banded door, firmly locked.",
+      methods:[
+        { label:"Pick the lock", cls:"check", req:function(ch){return hasItem(ch,"thieves_tools");}, reqText:"needs Thieves' Tools",
+          detail:function(ch){return "Sleight of Hand DC "+dc+" ("+fmtMod(skillMod(ch,"SleightOfHand"))+")";},
+          resolve:function(ch){ const r=doCheck(ch,"SleightOfHand",dc);
+            return {ok:r.success, text:r.text+(r.success?" The lock clicks open.":" The picks slip."), effects:r.success?{open:true}:{}};}},
+        { label:"Use a Key", cls:"item", req:function(ch){return hasItem(ch,"key");}, reqText:"needs a Key", detail:"Consumes one key.",
+          resolve:function(ch){ consume(ch,"key"); return {ok:true, text:"The key turns. The door swings wide.", effects:{open:true}};}},
+        { label:"Break it down", cls:"check",
+          detail:function(ch){return "Athletics DC "+(dc+2)+" ("+fmtMod(skillMod(ch,"Athletics"))+") — noisy!";},
+          resolve:function(ch){ const r=doCheck(ch,"Athletics",dc+2);
+            return {ok:r.success, text:r.text+(r.success?" Timber splinters!":" It holds firm."), effects:r.success?{open:true}:{dmg:roll(1,4)}};}},
+        { label:"Scroll of Knock", cls:"item", req:function(ch){return hasItem(ch,"scroll_knock");}, reqText:"needs the scroll", detail:"Consumes the scroll.",
+          resolve:function(ch){ consume(ch,"scroll_knock"); return {ok:true, text:"The scroll flares — the lock bursts apart!", effects:{open:true}};}}
+      ]};
+    case "rubble": return { icon:"🪨", title:"Collapsed Passage",
+      desc:"Fallen stone chokes the doorway.",
+      methods:[
+        { label:"Heave the rubble", cls:"check", detail:function(ch){return "Athletics DC "+dc+" ("+fmtMod(skillMod(ch,"Athletics"))+")";},
+          resolve:function(ch){const r=doCheck(ch,"Athletics",dc);
+            return {ok:r.success, text:r.text+(r.success?" You clear a gap.":" It won't budge."), effects:r.success?{open:true}:{dmg:roll(1,4)}};}},
+        { label:"Pry with Crowbar", cls:"item", req:function(ch){return hasItem(ch,"crowbar");}, reqText:"needs a Crowbar", detail:"Leverage grants easy passage.",
+          resolve:function(){return {ok:true, text:"The crowbar pops the stones loose.", effects:{open:true}};}}
+      ]};
+    case "warded": return { icon:"✨", title:"Warded Gate",
+      desc:"Runes crawl with cold light across the threshold.",
+      methods:[
+        { label:"Dispel the ward", cls:"check", detail:function(ch){return "Arcana DC "+dc+" ("+fmtMod(skillMod(ch,"Arcana"))+")";},
+          resolve:function(ch){const r=doCheck(ch,"Arcana",dc);
+            return {ok:r.success, text:r.text+(r.success?" The runes gutter and die.":" The runes flare back!"), effects:r.success?{open:true}:{dmg:roll(1,6)}};}},
+        { label:"Scroll of Dispel", cls:"item", req:function(ch){return hasItem(ch,"scroll_dispel");}, reqText:"needs the scroll", detail:"Consumes the scroll.",
+          resolve:function(ch){consume(ch,"scroll_dispel"); return {ok:true, text:"The counter-scroll erases the ward.", effects:{open:true}};}}
+      ]};
+    case "secret": return { icon:"🕳️", title:"Secret Tunnel",
+      desc:"A draft betrays a passage hidden behind the stones.",
+      methods:[ {label:"Slip through", cls:"auto", detail:"The way is clear now.",
+        resolve:function(){return {ok:true, text:"You squeeze into the hidden tunnel.", effects:{open:true}};}} ]};
+  }
+}
+
+const MONSTERS = [
+  {name:"Goblin Skirmishers", undead:false}, {name:"Giant Spider", undead:false},
+  {name:"Cave Troll", undead:false}, {name:"Skeleton Warband", undead:true},
+  {name:"Wraith", undead:true}, {name:"Gelatinous Ooze", undead:false}
+];
+function featureEncounter(f){
+  const dc = f.dc;
+  switch(f.type){
+    case "treasure": return { icon:"💰", title:"Treasure Hoard",
+      desc:"Coins and trinkets glitter in the gloom.",
+      methods:[ {label:"Gather the loot", cls:"auto", detail:"Free for the taking.",
+        resolve:function(){return {ok:true, text:"You pocket "+f.gold+" gold.", effects:{loot:f.gold, remove:true}};}} ]};
+
+    case "locked_chest": return { icon:"🧰", title:"Locked Chest",
+      desc:"An oak chest bound in iron. No trap — just a stubborn lock.",
+      methods:[
+        {label:"Pick the lock", cls:"check", req:function(ch){return hasItem(ch,"thieves_tools");}, reqText:"needs Thieves' Tools",
+          detail:function(ch){return "Sleight of Hand DC "+dc+" ("+fmtMod(skillMod(ch,"SleightOfHand"))+")";},
+          resolve:function(ch){const r=doCheck(ch,"SleightOfHand",dc);
+            return {ok:r.success, text:r.text+(r.success?" Inside: "+f.gold+" gold.":" Locked tight."), effects:r.success?{loot:f.gold, remove:true}:{}};}},
+        {label:"Use a Key", cls:"item", req:function(ch){return hasItem(ch,"key");}, reqText:"needs a Key", detail:"Consumes one key.",
+          resolve:function(ch){consume(ch,"key"); return {ok:true, text:"The key fits! "+f.gold+" gold inside.", effects:{loot:f.gold, remove:true}};}},
+        {label:"Smash it open", cls:"check", detail:function(ch){return "Athletics DC "+(dc+1)+" ("+fmtMod(skillMod(ch,"Athletics"))+") — may damage loot";},
+          resolve:function(ch){const r=doCheck(ch,"Athletics",dc+1); const g=r.success?Math.floor(f.gold*0.7):0;
+            return {ok:r.success, text:r.success?("Splinters fly — "+g+" gold (some scattered)."):"The chest resists.", effects:r.success?{loot:g, remove:true}:{}};}}
+      ]};
+
+    case "trapped_chest": return { icon:"🧨", title:"Trapped Chest",
+      desc: f.trapKnown ? "You spotted a needle-trap wired to the lid." : "A tempting chest… something feels wrong.",
+      methods:[
+        {label:"Inspect for traps", cls:"check", hideIf:function(){return f.trapKnown;},
+          detail:function(ch){return "Investigation DC "+dc+" ("+fmtMod(skillMod(ch,"Investigation"))+")";},
+          resolve:function(ch){const r=doCheck(ch,"Investigation",dc); if(r.success)f.trapKnown=true;
+            return {ok:r.success, text:r.success?"You trace a poisoned needle wired to the latch.":"Nothing obvious… you think.", effects:{}};}},
+        {label:"Disarm the trap", cls:"check", req:function(ch){return hasItem(ch,"thieves_tools")&&f.trapKnown;},
+          reqText:f.trapKnown?"needs Thieves' Tools":"inspect first", detail:function(ch){return "Sleight of Hand DC "+dc+" ("+fmtMod(skillMod(ch,"SleightOfHand"))+")";},
+          resolve:function(ch){const r=doCheck(ch,"SleightOfHand",dc);
+            if(r.success){f.trapped=false; return {ok:true, text:"Click — the needle retracts. Safe now.", effects:{}};}
+            return {ok:false, text:r.text+" The needle springs — poison!", effects:{dmg:roll(2,4)}};}},
+        {label:"Force it open", cls:"auto", detail:function(){return f.trapped?"Risk the trap for the gold.":"Safe — take the loot.";},
+          resolve:function(){ if(f.trapped){ const dmg=roll(2,6);
+              return {ok:false, text:"The trap triggers! "+dmg+" damage — but you grab "+f.gold+" gold.", effects:{dmg:dmg, loot:f.gold, remove:true}}; }
+            return {ok:true, text:"Disarmed and open — "+f.gold+" gold.", effects:{loot:f.gold, remove:true}};}}
+      ]};
+
+    case "monster": {
+      const m = f.monster;
+      return { icon:"🐉", title:m.name, desc: m.undead ? "Undead stir — cold and relentless." : "A hostile creature blocks your path.",
+      methods:[
+        {label:"Fight it", cls:"combat", detail:function(ch){return "Attack "+fmtMod(partyCombat(ch))+" vs Defense "+dc;},
+          resolve:function(ch){ const atk=d20()+partyCombat(ch); const ok=atk>=dc;
+            if(ok) return {ok:true, text:"⚔️ Attack "+atk+" vs "+dc+" — the "+m.name+" falls! You loot "+f.gold+" gold.", effects:{loot:f.gold, remove:true}};
+            const dmg=roll(2,6); return {ok:false, text:"⚔️ Attack "+atk+" vs "+dc+" — it wounds you for "+dmg+".", effects:{dmg:dmg}};}},
+        {label:"Sneak past", cls:"check", detail:function(ch){return "Stealth DC "+dc+" ("+fmtMod(skillMod(ch,"Stealth"))+")";},
+          resolve:function(ch){const r=doCheck(ch,"Stealth",dc);
+            return {ok:r.success, text:r.success?"You melt into shadow and slip by.":r.text+" It notices you!", effects:r.success?{remove:true}:{dmg:roll(1,6)}};}},
+        {label:"Parley", cls:"check", hideIf:function(){return m.undead;}, detail:function(ch){return "Persuasion DC "+(dc+1)+" ("+fmtMod(skillMod(ch,"Persuasion"))+")";},
+          resolve:function(ch){const r=doCheck(ch,"Persuasion",dc+1);
+            return {ok:r.success, text:r.success?"You strike a bargain — it lets you pass and gifts a token.":"It sneers and attacks!",
+              effects:r.success?{loot:Math.floor(f.gold/2), remove:true}:{dmg:roll(1,6)}};}},
+        {label:"Turn with Holy Water", cls:"item", req:function(ch){return hasItem(ch,"holy_water")&&m.undead;}, reqText:m.undead?"needs Holy Water":"only vs undead", detail:"Consumes Holy Water.",
+          resolve:function(ch){consume(ch,"holy_water"); return {ok:true, text:"Blessed water sears the undead to ash!", effects:{loot:f.gold, remove:true}};}}
+      ]};
+    }
+
+    case "trap": return { icon:"⚠️", title:"Hidden Trap",
+      desc: f.known ? "A pressure plate, now clearly visible." : "The flagstones look… deliberate.",
+      methods:[
+        {label:"Study the mechanism", cls:"check", hideIf:function(){return f.known;}, detail:function(ch){return "Perception DC "+dc+" ("+fmtMod(skillMod(ch,"Perception"))+")";},
+          resolve:function(ch){const r=doCheck(ch,"Perception",dc); if(r.success)f.known=true;
+            return {ok:r.success, text:r.success?"You spot a dart-trap plate.":"You sense nothing.", effects:{}};}},
+        {label:"Disarm it", cls:"check", req:function(ch){return hasItem(ch,"thieves_tools")&&f.known;}, reqText:f.known?"needs Thieves' Tools":"find it first",
+          detail:function(ch){return "Sleight of Hand DC "+dc+" ("+fmtMod(skillMod(ch,"SleightOfHand"))+")";},
+          resolve:function(ch){const r=doCheck(ch,"SleightOfHand",dc);
+            return {ok:r.success, text:r.success?"You jam the mechanism. Safe.":r.text+" It snaps at you!", effects:r.success?{remove:true}:{dmg:roll(1,6)}};}},
+        {label:"Leap over it", cls:"check", detail:function(ch){return "Acrobatics DC "+dc+" ("+fmtMod(skillMod(ch,"Acrobatics"))+")";},
+          resolve:function(ch){const r=doCheck(ch,"Acrobatics",dc);
+            return {ok:r.success, text:r.success?"You vault past cleanly.":"You clip the plate — darts fly!", effects:r.success?{remove:true}:{dmg:roll(2,4)}};}}
+      ]};
+
+    case "shrine": return { icon:"⛩️", title:"Forgotten Shrine",
+      desc:"A mossy altar hums with faint benevolence.",
+      methods:[
+        {label:"Offer a prayer", cls:"check", detail:function(ch){return "Religion DC "+dc+" ("+fmtMod(skillMod(ch,"Religion"))+")";},
+          resolve:function(ch){const r=doCheck(ch,"Religion",dc);
+            if(r.success) return {ok:true, text:"Warmth floods you — a blessing (+1 to all checks) and healing.",
+              effects:{buff:{name:"Shrine's Blessing", all:true, bonus:1}, heal:roll(2,4), remove:true}};
+            return {ok:false, text:"The altar stays silent.", effects:{remove:true}};}},
+        {label:"Leave an offering", cls:"item", req:function(ch){return ch.gold>=20;}, reqText:"needs 20 gold", detail:"Trade 20 gold for certain favor.",
+          resolve:function(ch){ch.gold-=20; return {ok:true, text:"The gods accept. Full healing and a blessing.",
+            effects:{buff:{name:"Shrine's Blessing", all:true, bonus:1}, heal:999, remove:true}};}}
+      ]};
+
+    case "riddle": return { icon:"📜", title:"Riddle Altar",
+      desc:"\"I have cities but no houses, forests but no trees, water but no fish. What am I?\"",
+      methods:[
+        {label:"Answer with lore", cls:"check", detail:function(ch){return "Arcana DC "+dc+" ("+fmtMod(skillMod(ch,"Arcana"))+")";},
+          resolve:function(ch){const r=doCheck(ch,"Arcana",dc);
+            if(r.success) return {ok:true, text:"\"A map.\" The altar yields a Healing Potion and gold.",
+              effects:{item:{name:"Healing Potion",tag:"potion_heal"}, loot:f.gold, remove:true}};
+            return {ok:false, text:"The runes dim, unimpressed.", effects:{remove:true}};}},
+        {label:"Recall history", cls:"check", detail:function(ch){return "Investigation DC "+(dc+1)+" ("+fmtMod(skillMod(ch,"Investigation"))+")";},
+          resolve:function(ch){const r=doCheck(ch,"Investigation",dc+1);
+            return {ok:r.success, text:r.success?"\"A map!\" A hidden drawer clicks open with gold.":"You draw a blank.", effects:r.success?{loot:f.gold, remove:true}:{remove:true}};}}
+      ]};
+
+    case "prisoner": return { icon:"🧍", title:"Captive Wanderer",
+      desc:"A ragged figure chained to the wall pleads for freedom.",
+      methods:[
+        {label:"Pick the shackles", cls:"check", req:function(ch){return hasItem(ch,"thieves_tools");}, reqText:"needs Thieves' Tools",
+          detail:function(ch){return "Sleight of Hand DC "+dc+" ("+fmtMod(skillMod(ch,"SleightOfHand"))+")";},
+          resolve:function(ch){const r=doCheck(ch,"SleightOfHand",dc);
+            return {ok:r.success, text:r.success?"Freed! They swear to fight at your side.":"The lock resists.",
+              effects:r.success?{ally:{name:"Freed Captive", type:"combat", bonus:2}, remove:true}:{}};}},
+        {label:"Reassure them", cls:"check", detail:function(ch){return "Persuasion DC "+dc+" ("+fmtMod(skillMod(ch,"Persuasion"))+")";},
+          resolve:function(ch){const r=doCheck(ch,"Persuasion",dc);
+            return {ok:r.success, text:r.success?"They calm, reveal a lockword, and join you.":"They recoil in fear.",
+              effects:r.success?{ally:{name:"Grateful Guide", type:"Perception", bonus:1}, remove:true}:{}};}},
+        {label:"Break the chains", cls:"check", detail:function(ch){return "Athletics DC "+(dc+1)+" ("+fmtMod(skillMod(ch,"Athletics"))+")";},
+          resolve:function(ch){const r=doCheck(ch,"Athletics",dc+1);
+            return {ok:r.success, text:r.success?"Iron snaps — they rise, grateful and armed.":"The chains hold.",
+              effects:r.success?{ally:{name:"Freed Captive", type:"combat", bonus:2}, remove:true}:{dmg:roll(1,4)}};}}
+      ]};
+
+    case "chasm": return { icon:"🕳️", title:"Yawning Chasm",
+      desc:"A black rift splits the floor. Something you want lies beyond.",
+      methods:[
+        {label:"Leap across", cls:"check", detail:function(ch){return "Athletics DC "+dc+" ("+fmtMod(skillMod(ch,"Athletics"))+")";},
+          resolve:function(ch){const r=doCheck(ch,"Athletics",dc);
+            return {ok:r.success, text:r.success?("You clear the gap and seize "+f.gold+" gold!"):"You fall short — grabbing the ledge, battered.",
+              effects:r.success?{loot:f.gold, remove:true}:{dmg:roll(2,6)}};}},
+        {label:"Swing on Grappling Hook", cls:"item", req:function(ch){return hasItem(ch,"grapple")||hasItem(ch,"rope");}, reqText:"needs Rope or Grapple", detail:"Safe crossing.",
+          resolve:function(){return {ok:true, text:"The line holds — you cross and claim "+f.gold+" gold.", effects:{loot:f.gold, remove:true}};}}
+      ]};
+
+    case "trapdoor": return { icon:"⬇️", title:"Trap Door",
+      desc: f.known ? "A hinged hatch gapes in the floor — it drops to a deeper level." : "The floorboards here ring hollow.",
+      methods:[
+        {label:"Examine the floor", cls:"check", hideIf:function(){return f.known;}, detail:function(ch){return "Perception DC "+dc+" ("+fmtMod(skillMod(ch,"Perception"))+")";},
+          resolve:function(ch){const r=doCheck(ch,"Perception",dc); if(r.success)f.known=true;
+            return {ok:r.success, text:r.success?"A concealed hatch — it leads down.":"Just old boards, surely.", effects:{}};}},
+        {label:"Descend by Rope", cls:"item", req:function(ch){return (hasItem(ch,"rope")||hasItem(ch,"grapple"))&&f.known;}, reqText:f.known?"needs Rope":"find it first", detail:"Climb safely to the next depth.",
+          resolve:function(){return {ok:true, text:"You rope down to the level below.", effects:{descend:true}};}},
+        {label:"Drop down", cls:"check", req:function(ch){return f.known;}, reqText:"find it first", detail:function(ch){return "DEX save DC "+dc+" ("+fmtMod(mod(ch.stats.DEX))+") or take fall damage";},
+          resolve:function(ch){const r20=d20(); const total=r20+mod(ch.stats.DEX); const ok=total>=dc;
+            return {ok:ok, text:"You drop through — save "+total+" vs "+dc+"."+(ok?" A clean landing.":" A hard landing!"),
+              effects:ok?{descend:true}:{descend:true, dmg:roll(2,6)}};}}
+      ]};
+
+    case "ascent": return { icon:"⬆️", title:"Stairway Up",
+      desc:"Worn steps spiral back toward the level above.",
+      methods:[ {label:"Climb up", cls:"auto", detail:"Return to the previous depth.",
+        resolve:function(){return {ok:true, text:"You ascend the stair.", effects:{ascend:true}};}} ]};
+  }
+  return {icon:"❓", title:"Curiosity", desc:"You examine it, but find nothing of note.",
+    methods:[{label:"Move on", cls:"auto", detail:"", resolve:function(){return {ok:true, text:"Nothing here.", effects:{remove:true}};}}]};
+}
+
+function doCheck(ch, skill, dc){
+  const d = d20();
+  const m = skillMod(ch, skill);
+  const total = d + m;
+  const crit = d===20, fumble = d===1;
+  const success = crit ? true : fumble ? false : total>=dc;
+  return { d:d, m:m, total:total, dc:dc, success:success,
+    text:"d20 "+d+fmtMod(m)+" = "+total+" vs DC "+dc+(crit?" — CRIT!":fumble?" — fumble!":"")+"." };
+}
+
+/* =========================================================================
+   DUNGEON GENERATION — deterministic, reciprocal exits, rooms on demand.
+   ========================================================================= */
+const DIRS = {
+  N:{dx:0,dy:-1,opp:"S"}, S:{dx:0,dy:1,opp:"N"},
+  E:{dx:1,dy:0,opp:"W"}, W:{dx:-1,dy:0,opp:"E"}
+};
+// Canonical key for the wall between a cell and its neighbor — same for both sides.
+function edgeKey(x,y,z,dir){
+  const d=DIRS[dir], nx=x+d.dx, ny=y+d.dy;
+  const ax=Math.min(x,nx), ay=Math.min(y,ny), bx=Math.max(x,nx), by=Math.max(y,ny);
+  return "E:"+ax+","+ay+"-"+bx+","+by+"@"+z;
+}
+function difficultyAt(z, x, y){
+  const dist = Math.abs(x)+Math.abs(y);
+  return 10 + z*2 + Math.min(6, Math.floor(dist/2));
+}
+function edgeInfo(x,y,z,dir){
+  const key = edgeKey(x,y,z,dir);
+  const r = rngFor(key);
+  const exists = r() < 0.5;
+  const baseDC = difficultyAt(z,x,y);
+  const type = pickWeighted(r, [["passage",46],["locked",20],["secret",10],["rubble",14],["warded",10]]);
+  const dc = baseDC + (type==="warded"?2:type==="locked"?1:0);
+  return { dir:dir, key:key, exists:exists, type:type, dc:dc, hidden: type==="secret" };
+}
+
+function genRoom(x,y,z){
+  const id = x+","+y+","+z;
+  if(WORLD.rooms.has(id)) return WORLD.rooms.get(id);
+  const r = rngFor("room", id);
+  const exits = {}; let openCount = 0;
+  ["N","E","S","W"].forEach(function(dir){
+    const info = edgeInfo(x,y,z,dir);
+    exits[dir] = info;
+    if(info.exists) openCount++;
+  });
+  if(openCount===0){
+    const dir = pick(r, ["N","E","S","W"]);
+    exits[dir] = Object.assign({}, exits[dir], {exists:true, type:"passage", hidden:false, dc:difficultyAt(z,x,y)});
+  }
+  const isEntrance = (x===0&&y===0&&z===0);
+  const features = [];
+  const baseDC = difficultyAt(z,x,y);
+  const push = function(type, extra){
+    features.push(Object.assign({id:id+":"+type+":"+features.length, type:type, dc:baseDC, resolved:false, hidden:false}, extra||{}));
+  };
+  if(z>0) push("ascent");
+  if(!isEntrance){
+    const table = [["monster",22],["treasure",16],["trapped_chest",12],["locked_chest",10],
+      ["trap",12],["shrine",6],["riddle",6],["prisoner",6],["chasm",6],["trapdoor",8]];
+    const count = 1 + Math.floor(r()*(z>=1?3.5:2.5));
+    let hasTrapdoor=false;
+    for(let i=0;i<count;i++){
+      let type = pickWeighted(r, table);
+      if(type==="trapdoor"){ if(hasTrapdoor) type="treasure"; else hasTrapdoor=true; }
+      const gold = 10 + Math.floor(r()*40) + z*15;
+      if(type==="monster") push("monster",{monster:MONSTERS[Math.floor(r()*MONSTERS.length)], gold:gold+15, dc:baseDC+3});
+      else if(type==="trapped_chest") push("trapped_chest",{gold:gold+20, trapped:true, trapKnown:false});
+      else if(type==="locked_chest") push("locked_chest",{gold:gold+15});
+      else if(type==="trap") push("trap",{known:false, dc:baseDC+1});
+      else if(type==="trapdoor") push("trapdoor",{known:false});
+      else push("treasure",{gold:gold});
+    }
+  } else {
+    push("treasure",{gold:15});
+  }
+  const room = { id:id, x:x, y:y, z:z, exits:exits, features:features, searched:false,
+    name: isEntrance ? "The Threshold" : roomName(r) };
+  WORLD.rooms.set(id, room);
+  return room;
+}
+const ROOM_ADJ = ["Dank","Echoing","Shattered","Gilded","Forgotten","Bloodstained","Whispering","Frozen","Ember-lit","Sunken","Moss-choked","Cyclopean"];
+const ROOM_NOUN = ["Vault","Gallery","Crypt","Antechamber","Cavern","Reliquary","Oubliette","Rotunda","Cistern","Barracks","Sanctum","Warren"];
+function roomName(r){ return pick(r,ROOM_ADJ)+" "+pick(r,ROOM_NOUN); }
+
+/* =========================================================================
+   WORLD STATE + FLOW
+   ========================================================================= */
+const WORLD = {
+  seed:"dragonsmaw", rooms:new Map(), visited:new Set(), openEdges:new Set(),
+  pos:{x:0,y:0,z:0}, hero:null, selection:null, logLines:[]
+};
+function newWorld(seed){
+  WORLD.seed = seed || "dungeon";
+  WORLD.rooms = new Map(); WORLD.visited = new Set(); WORLD.openEdges = new Set();
+  WORLD.pos = {x:0,y:0,z:0}; WORLD.selection = null; WORLD.logLines = [];
+  WORLD.hero = makeHero(WORLD.seed);
+  visit();
+  logLine("You enter the dungeon <b>“"+WORLD.seed+"”</b> as a "+WORLD.hero.cls+".", "gold");
+  renderAll();
+}
+function newHeroOnly(){
+  WORLD.hero = makeHero(WORLD.seed + "#" + (WORLD.logLines.length + Math.floor(WORLD.hero.hp)));
+  logLine("A new champion answers the call: a <b>"+WORLD.hero.cls+"</b>.", "gold");
+  renderAll();
+}
+function curRoom(){ return genRoom(WORLD.pos.x, WORLD.pos.y, WORLD.pos.z); }
+function visit(){ WORLD.visited.add(WORLD.pos.x+","+WORLD.pos.y+","+WORLD.pos.z); genRoom(WORLD.pos.x,WORLD.pos.y,WORLD.pos.z); }
+function isEdgeOpen(x,y,z,dir){ return WORLD.openEdges.has(edgeKey(x,y,z,dir)); }
+function revealedSecret(x,y,z,dir){ return WORLD.openEdges.has("seen:"+edgeKey(x,y,z,dir)); }
+function logLine(html, cls){
+  WORLD.logLines.unshift({html:html, cls:cls||""});
+  if(WORLD.logLines.length>60) WORLD.logLines.pop();
+}
+
+function selectExit(dir){
+  const p = WORLD.pos;
+  const info = curRoom().exits[dir];
+  if(!info || !info.exists) return;
+  if(info.hidden && !revealedSecret(p.x,p.y,p.z,dir) && !curRoom().searched) return;
+  if(info.type==="passage" || isEdgeOpen(p.x,p.y,p.z,dir)){ move(dir); return; }
+  WORLD.selection = {kind:"exit", dir:dir, info:info};
+  renderPanel(); renderRoom();
+}
+function selectFeature(fid){
+  const f = curRoom().features.find(function(f){return f.id===fid;});
+  if(!f) return;
+  WORLD.selection = {kind:"feature", fid:fid, f:f};
+  renderPanel(); renderRoom();
+}
+
+function applyEffects(fx, sourceIsExit, dir, feature){
+  const ch = WORLD.hero;
+  if(fx.loot){ ch.gold += fx.loot; logLine("Looted <b>"+fx.loot+" gold</b>.", "gold"); }
+  if(fx.heal){ const before=ch.hp; ch.hp=Math.min(ch.maxHp, ch.hp+fx.heal); logLine("Healed <b>"+(ch.hp-before)+" HP</b>.", "good"); }
+  if(fx.dmg){ ch.hp -= fx.dmg; logLine("Took <b>"+fx.dmg+" damage</b>.", "bad"); }
+  if(fx.item){ addItem(ch, fx.item.name, fx.item.tag, fx.item.qty||1); logLine("Gained <b>"+fx.item.name+"</b>.", "gold"); }
+  if(fx.ally){ ch.allies.push(fx.ally); logLine("<b>"+fx.ally.name+"</b> joins your party!", "good"); }
+  if(fx.buff){ ch.buffs.push(fx.buff); logLine("Blessing gained: <b>"+fx.buff.name+"</b>.", "good"); }
+  if(fx.open && sourceIsExit){
+    const p = WORLD.pos;
+    WORLD.openEdges.add(edgeKey(p.x,p.y,p.z,dir));
+    logLine("The <b>"+dir+"</b> way is open.", "good");
+    setTimeout(function(){ move(dir); }, 350);
+  }
+  if(fx.remove && feature){ feature.resolved=true; }
+  if(fx.descend){ WORLD.selection=null; changeDepth(+1); }
+  if(fx.ascend){ WORLD.selection=null; changeDepth(-1); }
+  if(ch.hp<=0){ ch.hp=0; logLine("<b>You have fallen…</b> Rest or start a new hero.", "bad"); }
+}
+
+function resolveMethod(method){
+  const ch = WORLD.hero;
+  if(ch.hp<=0) return;
+  const sel = WORLD.selection;
+  const outcome = method.resolve(ch, sel.f);
+  logLine((outcome.ok?"✔ ":"✖ ")+outcome.text, outcome.ok?"good":"bad");
+  const isExit = sel.kind==="exit";
+  applyEffects(outcome.effects||{}, isExit, sel.dir, sel.kind==="feature"?sel.f:null);
+  const moving = outcome.effects && (outcome.effects.open||outcome.effects.descend||outcome.effects.ascend);
+  if(!moving){
+    renderAll();
+    if(sel.kind==="feature" && sel.f.resolved){ WORLD.selection=null; renderPanel(); renderRoom(); }
+  }
+}
+
+function move(dir){
+  const p = WORLD.pos, d=DIRS[dir];
+  WORLD.pos = {x:p.x+d.dx, y:p.y+d.dy, z:p.z};
+  WORLD.selection = null;
+  visit();
+  logLine("You travel <b>"+dir+"</b> into the <b>"+curRoom().name+"</b>.");
+  renderAll();
+}
+function changeDepth(delta){
+  WORLD.pos = {x:WORLD.pos.x, y:WORLD.pos.y, z:Math.max(0, WORLD.pos.z+delta)};
+  visit();
+  const rm=curRoom();
+  logLine(delta>0?("You descend to <b>Depth "+(WORLD.pos.z+1)+"</b> — the "+rm.name+".")
+                 :("You climb to <b>Depth "+(WORLD.pos.z+1)+"</b> — the "+rm.name+"."), "gold");
+  renderAll();
+}
+function searchRoom(){
+  const ch = WORLD.hero, rm = curRoom(), p = WORLD.pos;
+  const dc = difficultyAt(p.z,p.x,p.y);
+  const r = doCheck(ch, ch.proficient.has("Investigation")?"Investigation":"Perception", dc);
+  let found = 0;
+  if(r.success){
+    ["N","E","S","W"].forEach(function(dir){
+      const info = rm.exits[dir];
+      if(info.exists && info.hidden && !revealedSecret(p.x,p.y,p.z,dir)){ WORLD.openEdges.add("seen:"+edgeKey(p.x,p.y,p.z,dir)); found++; }
+    });
+    rm.features.forEach(function(f){ if((f.type==="trap"||f.type==="trapdoor") && !f.known){ f.known=true; found++; } });
+    rm.searched = true;
+  }
+  logLine("🔍 Search — "+r.text+" "+(r.success?(found?("Revealed <b>"+found+"</b> hidden thing(s)."):"Nothing hidden here."):"You find nothing."), r.success?"good":"");
+  renderAll();
+}
+function shortRest(){
+  const ch = WORLD.hero;
+  if(ch.hp<=0){ ch.hp = Math.floor(ch.maxHp*0.5); logLine("You claw back from the brink — rest to <b>"+ch.hp+" HP</b>.","good"); renderAll(); return; }
+  const heal = Math.max(1, roll(2,6) + mod(ch.stats.CON));
+  const before = ch.hp; ch.hp = Math.min(ch.maxHp, ch.hp+heal);
+  logLine("🔥 You rest and recover <b>"+(ch.hp-before)+" HP</b>.", "good");
+  renderAll();
+}
+
+/* =========================================================================
+   RENDERING
+   ========================================================================= */
+const $ = function(sel){ return document.querySelector(sel); };
+function renderAll(){ renderSheet(); renderRoom(); renderPanel(); renderLog(); renderMinimap(); renderMeta(); }
+function renderMeta(){
+  const rm = curRoom();
+  $("#roomTitle").textContent = rm.name;
+  $("#depthTag").textContent = "Depth "+(WORLD.pos.z+1);
+  $("#mmDepth").textContent = (WORLD.pos.z+1);
+  $("#searchBtn").disabled = rm.searched;
+}
+function renderSheet(){
+  const ch = WORLD.hero;
+  const stats = STAT_KEYS.map(function(k){
+    return "<div class='stat'><div class='name'>"+k+"</div><div class='val'>"+ch.stats[k]+"</div><div class='mod'>"+fmtMod(mod(ch.stats[k]))+"</div></div>";
+  }).join("");
+  const skillChips = Object.keys(SKILLS).map(function(s){
+    const prof = ch.proficient.has(s);
+    return "<span class='skill "+(prof?'prof':'')+"'>"+s+" <b>"+fmtMod(skillMod(ch,s))+"</b></span>";
+  }).join("");
+  const items = ch.inventory.length? ch.inventory.map(function(i){return "<span class='tag'>"+i.name+(i.qty>1?" <span class='qty'>×"+i.qty+"</span>":"")+"</span>";}).join("") : "<span class='skill'>— empty —</span>";
+  const wpns = ch.weapons.map(function(w){return "<span class='tag wpn'>"+w.name+" <span class='qty'>"+fmtMod(attackBonus(ch,w))+"·"+w.dmg+"</span></span>";}).join("");
+  const allies = ch.allies.length? ch.allies.map(function(a){return "<span class='tag ally'>"+a.name+" <span class='qty'>+"+a.bonus+"</span></span>";}).join("") : "<span class='skill'>— none —</span>";
+  const buffs = ch.buffs.length? "<div style='margin-top:6px'>"+ch.buffs.map(function(b){return "<span class='tag' style='border-color:var(--good)'>✦ "+b.name+"</span>";}).join("")+"</div>":"";
+  const hpPct = Math.max(0,Math.round(100*ch.hp/ch.maxHp));
+  $("#sheet").innerHTML =
+    "<h2>"+ch.name+"</h2>"+
+    "<div class='hint' style='text-align:left;margin:-2px 0 8px'>Level "+ch.level+" "+ch.cls+" · AC "+ch.ac+" · Prof "+fmtMod(ch.prof)+" · 💰 "+ch.gold+"</div>"+
+    "<div class='stats'>"+stats+"</div>"+
+    "<div class='bars'><div class='bar'><div class='label'><span>Hit Points</span><span>"+ch.hp+" / "+ch.maxHp+"</span></div>"+
+    "<div class='meter hp'><span style='width:"+hpPct+"%'></span></div></div></div>"+
+    buffs+
+    "<h3>Skills</h3><div class='skills'>"+skillChips+"</div>"+
+    "<h3>Inventory</h3><div class='taglist'>"+items+"</div>"+
+    "<h3>Weapons</h3><div class='taglist'>"+wpns+"</div>"+
+    "<h3>Allies</h3><div class='taglist'>"+allies+"</div>";
+}
+
+function renderRoom(){
+  const rm = curRoom(), p = WORLD.pos;
+  const S=460, wall=54, inner=S-2*wall;
+  let svg = "<rect x='0' y='0' width='"+S+"' height='"+S+"' fill='#0b0906'/>";
+  svg += "<rect x='"+wall+"' y='"+wall+"' width='"+inner+"' height='"+inner+"' rx='8' fill='#241f18' stroke='#4a4235' stroke-width='3'/>";
+  for(let i=1;i<5;i++){
+    svg += "<line x1='"+(wall+i*inner/5)+"' y1='"+wall+"' x2='"+(wall+i*inner/5)+"' y2='"+(wall+inner)+"' stroke='#2c261d'/>";
+    svg += "<line x1='"+wall+"' y1='"+(wall+i*inner/5)+"' x2='"+(wall+inner)+"' y2='"+(wall+i*inner/5)+"' stroke='#2c261d'/>";
+  }
+  const doorPos = {
+    N:{cx:S/2, cy:wall/2, w:70, h:wall}, S:{cx:S/2, cy:S-wall/2, w:70, h:wall},
+    E:{cx:S-wall/2, cy:S/2, w:wall, h:70}, W:{cx:wall/2, cy:S/2, w:wall, h:70}
+  };
+  ["N","E","S","W"].forEach(function(dir){
+    const info = rm.exits[dir], dp = doorPos[dir];
+    const secretHidden = info.exists && info.hidden && !revealedSecret(p.x,p.y,p.z,dir) && !rm.searched;
+    if(!info.exists || secretHidden){
+      svg += "<rect x='"+(dp.cx-dp.w/2)+"' y='"+(dp.cy-dp.h/2)+"' width='"+dp.w+"' height='"+dp.h+"' fill='#181410'/>";
+      return;
+    }
+    const opened = info.type==="passage" || isEdgeOpen(p.x,p.y,p.z,dir);
+    const sel = WORLD.selection && WORLD.selection.kind==="exit" && WORLD.selection.dir===dir;
+    const glyph = {passage:"🚪",locked:"🔒",secret:"🕳️",rubble:"🪨",warded:"✨"}[info.type];
+    const col = opened ? "#3d6b3a" : sel ? "#c98b3a" : "#5a4a2e";
+    const lblY = dir==="S"?(dp.cy-dp.h/2-6):dir==="N"?(dp.cy+dp.h/2+14):dp.cy;
+    let lblX = dp.cx;
+    if(dir==="E") lblX = dp.cx-dp.w/2-10;
+    if(dir==="W") lblX = dp.cx+dp.w/2+10;
+    svg += "<g style='cursor:pointer' data-exit='"+dir+"'>"+
+      "<rect x='"+(dp.cx-dp.w/2)+"' y='"+(dp.cy-dp.h/2)+"' width='"+dp.w+"' height='"+dp.h+"' rx='5' fill='"+(opened?'#16331a':'#2a2114')+"' stroke='"+col+"' stroke-width='3'/>"+
+      "<text x='"+dp.cx+"' y='"+dp.cy+"' font-size='24' text-anchor='middle' dominant-baseline='central'>"+(opened?"🟢":glyph)+"</text>"+
+      "<text x='"+lblX+"' y='"+lblY+"' font-size='13' fill='#9a8f78' text-anchor='middle'>"+dir+"</text></g>";
+  });
+  const live = rm.features.filter(function(f){return !f.resolved;});
+  const slots = featureSlots(live.length, wall, inner);
+  live.forEach(function(f,i){
+    const hiddenTrap = (f.type==="trap"||f.type==="trapdoor") && !f.known && !rm.searched;
+    const pt = slots[i];
+    const sel = WORLD.selection && WORLD.selection.kind==="feature" && WORLD.selection.fid===f.id;
+    if(hiddenTrap){
+      svg += "<g style='cursor:pointer' data-feature='"+f.id+"'>"+
+        "<circle cx='"+pt.x+"' cy='"+pt.y+"' r='20' fill='#221d16' stroke='#332b20' stroke-dasharray='3 3'/>"+
+        "<text x='"+pt.x+"' y='"+pt.y+"' font-size='16' text-anchor='middle' dominant-baseline='central' opacity='0.5'>…</text></g>";
+      return;
+    }
+    const enc = featureEncounter(f);
+    svg += "<g style='cursor:pointer' data-feature='"+f.id+"'>"+
+      "<circle cx='"+pt.x+"' cy='"+pt.y+"' r='22' fill='"+(sel?'#3a2e14':'#1b1610')+"' stroke='"+(sel?'#c98b3a':'#4a4235')+"' stroke-width='2.5'/>"+
+      "<text x='"+pt.x+"' y='"+pt.y+"' font-size='24' text-anchor='middle' dominant-baseline='central'>"+enc.icon+"</text></g>";
+  });
+  svg += "<text x='"+(S/2)+"' y='"+(S/2)+"' font-size='30' text-anchor='middle' dominant-baseline='central'>🧙</text>";
+
+  const svgEl = $("#roomSvg");
+  svgEl.innerHTML = svg;
+  Array.prototype.forEach.call(svgEl.querySelectorAll("[data-exit]"), function(g){ g.addEventListener("click", function(){ selectExit(g.getAttribute("data-exit")); }); });
+  Array.prototype.forEach.call(svgEl.querySelectorAll("[data-feature]"), function(g){ g.addEventListener("click", function(){ selectFeature(g.getAttribute("data-feature")); }); });
+  const remaining = live.length;
+  $("#hint").textContent = remaining ? (remaining+" thing(s) in this room. Click doors (N/E/S/W) or objects.") : "Room cleared. Choose an exit.";
+}
+function featureSlots(n, wall, inner){
+  const cx = wall+inner/2, cy = wall+inner/2, R = inner*0.30;
+  if(n<=0) return [];
+  if(n===1) return [{x:cx, y:cy-R}];
+  const out=[];
+  for(let i=0;i<n;i++){ const a = -Math.PI/2 + i*(2*Math.PI/n); out.push({x:cx+R*Math.cos(a), y:cy+R*Math.sin(a)}); }
+  return out;
+}
+
+function renderPanel(){
+  const pnl = $("#panel"), sel = WORLD.selection;
+  if(!sel){ pnl.innerHTML = "<div class='empty'>Nothing selected.<br/>Choose a door or object in the room.</div>"; return; }
+  const ch = WORLD.hero;
+  let enc;
+  if(sel.kind==="exit"){ const e = exitMethods(sel.info); enc = {icon:e.icon, title:e.title+" · "+sel.dir, desc:e.desc, methods:e.methods}; }
+  else { enc = featureEncounter(sel.f); }
+  const filtered = enc.methods.filter(function(m){ return !(m.hideIf && m.hideIf()); });
+  const rows = filtered.map(function(m, idx){
+    const available = m.req ? m.req(ch) : true;
+    const detail = typeof m.detail==="function" ? m.detail(ch) : (m.detail||"");
+    const reqTxt = (!available && m.reqText) ? "<span class='odc'>"+m.reqText+"</span>" : "";
+    return "<div class='opt method-"+m.cls+" "+(available?'':'disabled')+"' data-m='"+idx+"'>"+
+      "<div class='ol'><span class='oname'>"+m.label+"</span>"+reqTxt+"</div>"+
+      "<div class='odetail'>"+detail+"</div></div>";
+  }).join("");
+  pnl.innerHTML =
+    "<div class='etitle'>"+enc.icon+" "+enc.title+"</div>"+
+    "<div class='edesc'>"+enc.desc+"</div>"+
+    "<div class='estat'>Choose an approach — greyed options need gear, allies, or a prior step.</div>"+
+    "<div class='opts'>"+rows+"</div>";
+  Array.prototype.forEach.call(pnl.querySelectorAll(".opt"), function(node){
+    const m = filtered[+node.getAttribute("data-m")];
+    const available = m.req ? m.req(ch) : true;
+    if(!available || ch.hp<=0) return;
+    node.addEventListener("click", function(){
+      resolveMethod(m);
+      if(WORLD.selection) renderPanel();
+    });
+  });
+}
+function renderLog(){
+  $("#log").innerHTML = WORLD.logLines.map(function(l){return "<div class='le "+l.cls+"'>"+l.html+"</div>";}).join("");
+}
+function renderMinimap(){
+  const z = WORLD.pos.z;
+  let minX=0,maxX=0,minY=0,maxY=0;
+  WORLD.visited.forEach(function(key){
+    const a = key.split(",").map(Number);
+    if(a[2]!==z) return;
+    minX=Math.min(minX,a[0]);maxX=Math.max(maxX,a[0]);minY=Math.min(minY,a[1]);maxY=Math.max(maxY,a[1]);
+  });
+  minX-=1;maxX+=1;minY-=1;maxY+=1;
+  const cols=maxX-minX+1;
+  const g=$("#minimap");
+  g.style.gridTemplateColumns="repeat("+cols+",20px)";
+  let html="";
+  for(let vy=minY;vy<=maxY;vy++){
+    for(let vx=minX;vx<=maxX;vx++){
+      const seen = WORLD.visited.has(vx+","+vy+","+z);
+      const here = vx===WORLD.pos.x&&vy===WORLD.pos.y;
+      html+="<div class='mm "+(here?'here':seen?'seen':'')+"'></div>";
+    }
+  }
+  g.innerHTML=html;
+}
+
+/* =========================================================================
+   WIRE-UP
+   ========================================================================= */
+$("#newBtn").addEventListener("click", function(){
+  const s = $("#seedInput").value.trim() || randomSeedWord();
+  $("#seedInput").value = s;
+  newWorld(s);
+});
+$("#rerollChar").addEventListener("click", newHeroOnly);
+$("#searchBtn").addEventListener("click", searchRoom);
+$("#restBtn").addEventListener("click", shortRest);
+$("#seedInput").addEventListener("keydown", function(e){ if(e.key==="Enter") $("#newBtn").click(); });
+
+const SEED_WORDS=["dragonsmaw","hollowfen","ashvault","grimhold","netherreach","blackmarsh","ruincrown","moldspire","direwell","gravecant"];
+function randomSeedWord(){ return SEED_WORDS[Math.floor(Math.random()*SEED_WORDS.length)]+"-"+Math.floor(Math.random()*900+100); }
+
+$("#seedInput").value = "dragonsmaw";
+newWorld("dragonsmaw");
+</script>
+</body>
+</html>
