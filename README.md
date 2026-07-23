@@ -45,6 +45,7 @@ same dungeon — share a seed and a friend explores the identical labyrinth.
 | Feature | Resolved by |
 |---|---|
 | 💰 **Treasure hoard** | Free to grab |
+| 📦 **Supply crate** | Pry open (or rummage — Investigation) for **torches**, sometimes a potion |
 | 🧰 **Locked chest** | Pick lock · **Key** · smash open (loses some loot) |
 | 🧨 **Trapped chest** | Spot the trap (Investigation) → disarm (DEX+Tools), or force it and gamble on damage |
 | 🐉 **Monster** | Fight (weapon attack + allies vs its defense) · sneak past (Stealth) · parley (CHA) · **Holy Water** vs undead |
@@ -82,6 +83,9 @@ sidestep a roll entirely (a key beats any lock; rope makes any chasm trivial).
   spends a spare from your pack to relight (watch the fuel bar on your sheet).
   Let it gutter out and the darkness closes in to a dim, close circle — the
   dungeon is genuinely **torch-lit fog of war**.
+- **Torches are loot.** Fresh torches turn up in treasure hoards, chests, and
+  **supply crates**, and can even be salvaged off a defeated monster — so light
+  is a resource you explore and fight to keep stocked.
 - **Enemies bar every exit.** While a monster prowls the room, all four doors
   are sealed (shown barred in red). You must **defeat it, sneak past it, parley,
   or turn it** before the exits reopen — clicking a barred door surfaces the
