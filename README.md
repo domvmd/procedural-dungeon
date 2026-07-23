@@ -86,6 +86,12 @@ sidestep a roll entirely (a key beats any lock; rope makes any chasm trivial).
 - **Torches are loot.** Fresh torches turn up in treasure hoards, chests, and
   **supply crates**, and can even be salvaged off a defeated monster — so light
   is a resource you explore and fight to keep stocked.
+- **Wall sconces** are free light. A lit sconce glows across the room even
+  through the fog of war, beckoning you over — take the flame to refuel your
+  torch to full **without spending a spare** (or pocket it if you're already full).
+- **Darkness has teeth.** When your torch burns low every check and attack takes
+  **−1**; let it go out entirely and the penalty is **−3**, while the screen edges
+  pulse an angry red. Keep the flame alive or pay for fumbling in the dark.
 - **Enemies bar every exit.** While a monster prowls the room, all four doors
   are sealed (shown barred in red). You must **defeat it, sneak past it, parley,
   or turn it** before the exits reopen — clicking a barred door surfaces the

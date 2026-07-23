@@ -284,9 +284,11 @@ function makeHero(seedStr){
     inventory: kit.items.map(function(x){return {name:x[0],tag:x[1],qty:x[2]};}),
     weapons: kit.weapons.map(function(x){return {name:x[0],stat:x[1],dmg:x[2]};}),
     allies: kit.allies.map(function(x){return {name:x[0],type:x[1],bonus:x[2]};}),
-    gold: 0, buffs: [], torchLit: false, torchFuel: 0
+    gold: 0, buffs: [], torchLit: false, torchFuel: 0, lowWarned: false
   };
 }
+// Penalty to every check/attack when the light is failing: -3 in the dark, -1 when low.
+function lightPenalty(){ const ch = WORLD.hero; if(!ch) return 0; if(!ch.torchLit) return -3; if(ch.torchFuel < TORCH_DURATION*0.18) return -1; return 0; }
 function skillMod(ch, skill){
   let m = mod(ch.stats[SKILLS[skill]]);
   if(ch.proficient.has(skill)) m += ch.prof;
@@ -355,6 +357,7 @@ function featureSprite(f){
   switch(f.type){
     case "treasure": return "coin_anim";
     case "cache": return "crate";
+    case "sconce": return "sconce";
     case "locked_chest": return "chest_full_open_anim_f0";
     case "trapped_chest": return "chest_mimic_open_anim_f0";
     case "monster": return f.monster.sprite;
@@ -397,7 +400,7 @@ function featureEncounter(f){
       return { icon:"🐉", title:m.name, desc: m.undead ? "Undead stir — cold and relentless." : "A hostile creature blocks your path.",
       methods:[
         {label:"Fight it", cls:"combat", detail:function(ch){return "Attack "+fmtMod(partyCombat(ch))+" vs Defense "+dc;},
-          resolve:function(ch){ const atk=d20()+partyCombat(ch); const ok=atk>=dc; if(ok) return {ok:true, text:"⚔️ Attack "+atk+" vs "+dc+" — the "+m.name+" falls! You loot "+f.gold+" gold.", effects:{loot:f.gold, remove:true}}; const dmg=roll(2,6); return {ok:false, text:"⚔️ Attack "+atk+" vs "+dc+" — it wounds you for "+dmg+".", effects:{dmg:dmg}};}},
+          resolve:function(ch){ const atk=d20()+partyCombat(ch)+lightPenalty(); const ok=atk>=dc; if(ok) return {ok:true, text:"⚔️ Attack "+atk+" vs "+dc+" — the "+m.name+" falls! You loot "+f.gold+" gold.", effects:{loot:f.gold, remove:true}}; const dmg=roll(2,6); return {ok:false, text:"⚔️ Attack "+atk+" vs "+dc+" — it wounds you for "+dmg+".", effects:{dmg:dmg}};}},
         {label:"Sneak past", cls:"check", detail:function(ch){return "Stealth DC "+dc+" ("+fmtMod(skillMod(ch,"Stealth"))+")";},
           resolve:function(ch){const r=doCheck(ch,"Stealth",dc); return {ok:r.success, text:r.success?"You melt into shadow and slip by.":r.text+" It notices you!", effects:r.success?{remove:true}:{dmg:roll(1,6)}};}},
         {label:"Parley", cls:"check", hideIf:function(){return m.undead;}, detail:function(ch){return "Persuasion DC "+(dc+1)+" ("+fmtMod(skillMod(ch,"Persuasion"))+")";},
@@ -452,10 +455,17 @@ function featureEncounter(f){
         {label:"Descend by Rope", cls:"item", req:function(ch){return (hasItem(ch,"rope")||hasItem(ch,"grapple"))&&f.known;}, reqText:f.known?"needs Rope":"find it first", detail:"Climb safely to the next depth.",
           resolve:function(){return {ok:true, text:"You rope down to the level below.", effects:{descend:true}};}},
         {label:"Drop down", cls:"check", req:function(ch){return f.known;}, reqText:"find it first", detail:function(ch){return "DEX save DC "+dc+" ("+fmtMod(mod(ch.stats.DEX))+") or take fall damage";},
-          resolve:function(ch){const r20=d20(); const total=r20+mod(ch.stats.DEX); const ok=total>=dc; return {ok:ok, text:"You drop through — save "+total+" vs "+dc+"."+(ok?" A clean landing.":" A hard landing!"), effects:ok?{descend:true}:{descend:true, dmg:roll(2,6)}};}}
+          resolve:function(ch){const r20=d20(); const total=r20+mod(ch.stats.DEX)+lightPenalty(); const ok=total>=dc; return {ok:ok, text:"You drop through — save "+total+" vs "+dc+"."+(ok?" A clean landing.":" A hard landing!"), effects:ok?{descend:true}:{descend:true, dmg:roll(2,6)}};}}
       ]};
     case "ascent": return { icon:"⬆️", title:"Stairway Up", desc:"Worn steps spiral back toward the level above.",
       methods:[ {label:"Climb up", cls:"auto", detail:"Return to the previous depth.", resolve:function(){return {ok:true, text:"You ascend the stair.", effects:{ascend:true}};}} ]};
+    case "sconce": return { icon:"🔥", title:"Wall Sconce", desc:"A torch still burns in an iron wall bracket, sputtering against the gloom.",
+      methods:[
+        {label:"Take the flame", cls:"auto", detail:"Refuel your torch to full — no spare spent.",
+          resolve:function(){ const ch=WORLD.hero;
+            if(!ch.torchLit || ch.torchFuel < TORCH_DURATION){ refuelTorch(ch); return {ok:true, text:"You kindle your torch from the sconce — full and bright again.", effects:{remove:true}}; }
+            return {ok:true, text:"Your torch is already full — you pocket the wall torch as a spare.", effects:{remove:true, torches:1}}; }}
+      ]};
     case "cache": return { icon:"📦", title:"Supply Crate", desc:"A warden's supply crate — the sort once stocked with torches and tonics for the dark.",
       methods:[
         {label:"Pry it open", cls:"auto", detail:"Take the "+f.torches+" torch"+(f.torches>1?"es":"")+(f.potion?" + potion":"")+" inside.",
@@ -469,9 +479,10 @@ function featureEncounter(f){
   return {icon:"❓", title:"Curiosity", desc:"You examine it, but find nothing of note.", methods:[{label:"Move on", cls:"auto", detail:"", resolve:function(){return {ok:true, text:"Nothing here.", effects:{remove:true}};}}]};
 }
 function doCheck(ch, skill, dc){
-  const d = d20(); const m = skillMod(ch, skill); const total = d + m;
+  const d = d20(); const m = skillMod(ch, skill); const pen = lightPenalty(); const total = d + m + pen;
   const crit = d===20, fumble = d===1; const success = crit ? true : fumble ? false : total>=dc;
-  return { d:d, m:m, total:total, dc:dc, success:success, text:"d20 "+d+fmtMod(m)+" = "+total+" vs DC "+dc+(crit?" — CRIT!":fumble?" — fumble!":"")+"." };
+  return { d:d, m:m, total:total, dc:dc, success:success,
+    text:"d20 "+d+fmtMod(m)+(pen?" "+pen+" dark":"")+" = "+total+" vs DC "+dc+(crit?" — CRIT!":fumble?" — fumble!":"")+"." };
 }
 
 /* =========================================================================
@@ -499,7 +510,7 @@ function genRoom(x,y,z){
   const push = function(type, extra){ features.push(Object.assign({id:id+":"+type+":"+features.length, type:type, dc:baseDC, resolved:false, hidden:false}, extra||{})); };
   if(z>0) push("ascent");
   if(!isEntrance){
-    const table = [["monster",22],["treasure",15],["trapped_chest",12],["locked_chest",10],["trap",12],["cache",8],["shrine",6],["riddle",6],["prisoner",5],["chasm",5],["trapdoor",8]];
+    const table = [["monster",22],["treasure",15],["trapped_chest",11],["locked_chest",10],["trap",12],["cache",8],["sconce",8],["shrine",6],["riddle",6],["prisoner",5],["chasm",5],["trapdoor",8]];
     const count = 1 + Math.floor(r()*(z>=1?3.5:2.5)); let hasTrapdoor=false;
     const torchDrop = function(){ const x=r(); return x<0.14?2 : (x<0.42?1 : 0); };  // ~42% of loots carry 1-2 torches
     for(let i=0;i<count;i++){
@@ -511,6 +522,7 @@ function genRoom(x,y,z){
       else if(type==="locked_chest") push("locked_chest",{gold:gold+15, torches:torchDrop()});
       else if(type==="trap") push("trap",{known:false, dc:baseDC+1});
       else if(type==="cache") push("cache",{gold:5+Math.floor(r()*14), torches:2+Math.floor(r()*2), potion:(r()<0.4)});
+      else if(type==="sconce") push("sconce",{});
       else if(type==="trapdoor") push("trapdoor",{known:false});
       else push("treasure",{gold:gold, torches:torchDrop()});
     }
@@ -634,7 +646,8 @@ function shortRest(){
   logLine("🔥 You rest and recover <b>"+(ch.hp-before)+" HP</b>.", "good"); renderAll();
 }
 // Torch is a consumable light source: lighting one spends a Torch from your pack.
-function lightTorch(ch){ if(!consume(ch,"torch")) return false; ch.torchLit = true; ch.torchFuel = TORCH_DURATION; return true; }
+function refuelTorch(ch){ ch.torchLit = true; ch.torchFuel = TORCH_DURATION; ch.lowWarned = false; }
+function lightTorch(ch){ if(!consume(ch,"torch")) return false; refuelTorch(ch); return true; }
 function torchSpares(ch){ const it = ch.inventory.find(function(i){return i.tag==="torch";}); return it? it.qty : 0; }
 function relightTorch(){
   const ch = WORLD.hero;
@@ -765,6 +778,7 @@ function drawLayoutAt(L, ox, oy, active, now){
     }
     const cx = ft.c*TS + TS/2 + ox + rox, by = ft.r*TS + TS + oy + roy;
     if(ft.hiddenTrap){ ctx.fillStyle="rgba(80,70,55,.7)"; ctx.fillRect(ft.c*TS+6+ox, ft.r*TS+7+oy, 4,2); ctx.fillRect(ft.c*TS+8+ox, ft.r*TS+9+oy, 3,2); }
+    else if(ft.f.type==="sconce"){ drawSconceBracket(cx, by); }   // flame drawn later, atop the fog
     else { drawCenteredBottom(curFrame(featureSprite(ft.f)), cx, by, FEATURE_SCALE[ft.f.type]||1); }
     if(sel && sel.kind==="feature" && sel.fid===ft.f.id){ ctx.strokeStyle="#f2c94c"; ctx.lineWidth=1; ctx.strokeRect(ft.c*TS+0.5+ox, ft.r*TS+0.5+oy, TS-1, TS-1); }
   });
@@ -793,6 +807,18 @@ function spawnBurstAt(now, x, y){
     DUST.push({ x:x, y:y, vx: Math.cos(ang)*spd, vy: Math.sin(ang)*spd*0.6 - 6, born: now, life: 480, sz: 1 + Math.floor(Math.random()*2) });
   }
 }
+// A wall sconce: a dark bracket (in the room pass) and a bright flame that glows
+// through the fog of war (drawn after the darkness so it beckons across the room).
+function drawSconceBracket(cx, by){ ctx.fillStyle="#241a10"; ctx.fillRect(Math.round(cx-1), Math.round(by-7), 3, 7); }
+function drawSconceFlame(cx, fy, now){
+  const f = REDUCED ? 1 : (1 + Math.sin(now/70)*0.18 + Math.sin(now/23)*0.10);
+  const g = ctx.createRadialGradient(cx, fy, 0, cx, fy, 8*f);
+  g.addColorStop(0, "rgba(255,244,200,0.95)");
+  g.addColorStop(0.45, "rgba(255,150,45,0.80)");
+  g.addColorStop(1, "rgba(190,55,10,0)");
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, fy, 8*f, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = "rgba(255,242,195,0.92)"; ctx.fillRect(Math.round(cx-1), Math.round(fy-2), 2, 3);   // bright core
+}
 // Torch-lit fog of war: a flickering pool of light around the hero, the rest
 // swallowed by darkness. Brighter while you carry a lit Torch.
 function drawTorchlight(now){
@@ -812,6 +838,16 @@ function drawTorchlight(now){
   warm.addColorStop(0, "rgba(255,170,80,"+glow.toFixed(3)+")");
   warm.addColorStop(1, "rgba(255,170,80,0)");
   ctx.fillStyle = warm; ctx.fillRect(0,0,canvas.width,canvas.height);
+  // danger cue: the screen edges pulse red as the flame dies (steady when out, or reduced-motion)
+  const danger = !lit ? 1 : (low ? 0.6 : 0);
+  if(danger>0){
+    const pulse = REDUCED ? 0.5 : (0.5 + 0.5*Math.sin(now/300));
+    const a = danger * (0.12 + 0.28*pulse);
+    const rg = ctx.createRadialGradient(cx, cy, R*0.5, cx, cy, canvas.width*0.85);
+    rg.addColorStop(0, "rgba(150,20,14,0)");
+    rg.addColorStop(1, "rgba(150,20,14,"+a.toFixed(3)+")");
+    ctx.fillStyle = rg; ctx.fillRect(0,0,canvas.width,canvas.height);
+  }
 }
 function paintRoom(){
   if(!atlasReady) return;
@@ -833,6 +869,7 @@ function paintRoom(){
     drawCenteredBottom(curFrame(hero.sprite), HERO_CX, HERO_BY);
     drawDust(now);                                              // landing puff settles here
     drawTorchlight(now);
+    ROOMLAYOUT.feats.forEach(function(ft){ if(ft.f.type==="sconce"){ drawSconceFlame(ft.c*TS+TS/2, ft.r*TS+TS-9, now); } });  // beacons through the dark
   }
 }
 function renderRoom(){
@@ -874,7 +911,8 @@ function renderPanel(){
   pnl.innerHTML =
     "<div class='etitle'>"+thumb+" "+enc.title+"</div>"+
     "<div class='edesc'>"+enc.desc+"</div>"+
-    "<div class='estat'>Choose an approach — greyed options need gear, allies, or a prior step.</div>"+
+    "<div class='estat'>Choose an approach — greyed options need gear, allies, or a prior step."+
+      (lightPenalty()<0 ? " <b style='color:var(--bad)'>🕯️ Darkness: checks "+lightPenalty()+".</b>" : "")+"</div>"+
     "<div class='opts'>"+rows+"</div>";
   Array.prototype.forEach.call(pnl.querySelectorAll(".opt"), function(node){
     const m = filtered[+node.getAttribute("data-m")]; const available = m.req ? m.req(ch) : true; if(!available || ch.hp<=0) return;
@@ -899,7 +937,8 @@ function tickAnim(){
   if(ch && ch.torchLit){                        // the torch burns down in real time
     ch.torchFuel -= dt;
     const tf = document.getElementById("torchFuel"); if(tf) tf.style.width = (100*Math.max(0,ch.torchFuel)/TORCH_DURATION).toFixed(1)+"%";
-    if(ch.torchFuel<=0){ ch.torchFuel=0; ch.torchLit=false; logLine("🕯️ Your torch gutters out — the dark closes in.","bad"); renderSheet(); renderLog(); updateTorchBtn(); }
+    if(!ch.lowWarned && ch.torchFuel < TORCH_DURATION*0.18){ ch.lowWarned=true; logLine("🔥 Your torch burns low — checks now suffer <b>−1</b>. Find light.","bad"); renderLog(); }
+    if(ch.torchFuel<=0){ ch.torchFuel=0; ch.torchLit=false; logLine("🕯️ Your torch gutters out — the dark closes in. Checks suffer <b>−3</b>.","bad"); renderSheet(); renderLog(); updateTorchBtn(); }
   }
   if(MOVE){                                    // smooth repaint + brisk stride while sliding
     frameIndex = Math.floor(now/130);
