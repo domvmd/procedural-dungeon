@@ -576,8 +576,9 @@ function stepMove(now){
     }
   }
   if(now - MOVE.t0 < SLIDE_DUR) return;
-  WORLD.pos = MOVE.toPos; WORLD.selection = null; visit(); DUST = [];
+  WORLD.pos = MOVE.toPos; WORLD.selection = null; visit();
   const dir = MOVE.dir; MOVE = null;
+  spawnLandingPuff(now);                                        // dust kicks up as the hero lands
   logLine("You travel <b>"+dir+"</b> into the <b>"+curRoom().name+"</b>.");
   renderAll();
 }
@@ -713,6 +714,31 @@ function drawDust(now){
     ctx.fillStyle = "rgba(206,192,160,"+(a*0.65).toFixed(3)+")"; ctx.fillRect(Math.round(x), Math.round(y), pt.sz, pt.sz);
   });
 }
+// A radial burst of dust as the hero lands in the new room.
+function spawnLandingPuff(now){
+  DUST = [];
+  for(let i=0;i<16;i++){
+    const ang = Math.PI*2*i/16 + Math.random()*0.5, spd = 16 + Math.random()*26;
+    DUST.push({ x: HERO_CX + (Math.random()*4-2), y: HERO_BY - 1,
+      vx: Math.cos(ang)*spd, vy: Math.sin(ang)*spd*0.45 - 8, born: now, life: 520, sz: 1 + Math.floor(Math.random()*2) });
+  }
+}
+// Torch-lit fog of war: a flickering pool of light around the hero, the rest
+// swallowed by darkness. Brighter while you carry a lit Torch.
+function drawTorchlight(now){
+  const cx = HERO_CX, cy = HERO_BY - 9;
+  const flick = REDUCED ? 1 : (1 + Math.sin(now/110)*0.03 + Math.sin(now/47)*0.015);
+  const R = (hasItem(WORLD.hero,"torch") ? 118 : 66) * flick;
+  const dark = ctx.createRadialGradient(cx, cy, R*0.42, cx, cy, R);
+  dark.addColorStop(0, "rgba(6,5,3,0)");
+  dark.addColorStop(0.72, "rgba(6,5,3,0.34)");
+  dark.addColorStop(1, "rgba(4,3,2,0.9)");
+  ctx.fillStyle = dark; ctx.fillRect(0,0,canvas.width,canvas.height);
+  const warm = ctx.createRadialGradient(cx, cy, 0, cx, cy, R*0.7);   // warm torch glow
+  warm.addColorStop(0, "rgba(255,170,80,0.12)");
+  warm.addColorStop(1, "rgba(255,170,80,0)");
+  ctx.fillStyle = warm; ctx.fillRect(0,0,canvas.width,canvas.height);
+}
 function paintRoom(){
   if(!atlasReady) return;
   const now = performance.now(), hero = WORLD.hero;
@@ -726,10 +752,13 @@ function paintRoom(){
     drawLayoutAt(MOVE.toLayout, ox + v.dx*S, oy + v.dy*S, false);
     drawDust(now);
     drawCenteredBottomFlip(curFrame(hero.spriteRun), HERO_CX, HERO_BY, v.dx < 0);   // hero walks in place, camera follows
+    drawTorchlight(now);
   } else {
     if(!ROOMLAYOUT) return;
     drawLayoutAt(ROOMLAYOUT, 0, 0, true);
     drawCenteredBottom(curFrame(hero.sprite), HERO_CX, HERO_BY);
+    drawDust(now);                                              // landing puff settles here
+    drawTorchlight(now);
   }
 }
 function renderRoom(){
@@ -787,16 +816,16 @@ function renderMinimap(){
 }
 
 /* ---- animation loop ---- */
-let lastFi = -1;
+let lastPaint = 0;
 function tickAnim(){
   const now = performance.now();
   if(MOVE){                                    // smooth repaint + brisk stride while sliding
     frameIndex = Math.floor(now/130);
     if(atlasReady) paintRoom();
     stepMove(now);
-  } else {                                     // idle: throttle to the sprite frame rate
-    const fi = Math.floor(now/160);
-    if(fi!==lastFi){ lastFi=fi; frameIndex=fi; if(atlasReady && ROOMLAYOUT) paintRoom(); }
+  } else if(now - lastPaint >= 33){            // ~30fps idle: torch flicker, dust settle, sprite bob
+    lastPaint = now; frameIndex = Math.floor(now/160);
+    if(atlasReady && ROOMLAYOUT) paintRoom();
   }
   requestAnimationFrame(tickAnim);
 }
