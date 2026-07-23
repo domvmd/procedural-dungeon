@@ -75,11 +75,25 @@ versus a **difficulty class (DC)** that scales with your depth. Natural 20 alway
 succeeds; natural 1 always fails. Items and allies open alternative paths that
 sidestep a roll entirely (a key beats any lock; rope makes any chasm trivial).
 
+## Light & danger
+
+- **Torches are a consumable light source.** You start with one lit; it burns
+  down in real time, and the pool of light shrinks as it dies. **Light Torch**
+  spends a spare from your pack to relight (watch the fuel bar on your sheet).
+  Let it gutter out and the darkness closes in to a dim, close circle — the
+  dungeon is genuinely **torch-lit fog of war**.
+- **Enemies bar every exit.** While a monster prowls the room, all four doors
+  are sealed (shown barred in red). You must **defeat it, sneak past it, parley,
+  or turn it** before the exits reopen — clicking a barred door surfaces the
+  monster's options. Monsters visibly **lunge** when they strike you and burst
+  into dust when they fall.
+
 ## Controls
 
 - **New Dungeon** — generate a world from the seed box (blank = random seed)
 - **New Hero** — re-roll your adventurer for the current dungeon
 - **Search Room** — reveal secret exits, hidden traps, and trap doors
+- **Light Torch** — spend a spare torch to restore your light
 - **Short Rest** — heal between fights
 - Click any **door** or **object** in the room to open its resolution panel
 

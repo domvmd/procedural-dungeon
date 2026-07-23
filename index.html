@@ -59,6 +59,11 @@
   .stat .mod{font-size:12px;color:var(--gold)}
   .hearts{display:flex;flex-wrap:wrap;gap:2px;margin:8px 0 2px;align-items:center}
   .hearts .hp{margin-left:6px;font-size:12px;color:var(--muted)}
+  .torchrow{display:flex;align-items:center;gap:8px;margin:6px 0 2px;font-size:12px;color:var(--muted)}
+  .torchrow .meter{flex:1;height:9px}
+  .meter.torch > span{background:linear-gradient(90deg,#6b3d10,#e6a53a)}
+  .torchrow.out .tlabel{color:var(--bad)}
+  .torchrow .tspare{white-space:nowrap}
   .taglist{display:flex;flex-wrap:wrap;gap:6px}
   .tag{background:var(--panel2);border:1px solid var(--stone2);border-radius:20px;padding:3px 9px;font-size:12px;display:inline-flex;align-items:center;gap:5px}
   .tag .qty{color:var(--gold)}
@@ -156,6 +161,7 @@
         </div>
         <div class="actionsrow">
           <button id="searchBtn">&#128269; Search Room</button>
+          <button id="torchBtn">&#128367;&#65039; Light Torch</button>
           <button id="restBtn">&#128293; Short Rest</button>
         </div>
         <div class="minimap">
@@ -278,7 +284,7 @@ function makeHero(seedStr){
     inventory: kit.items.map(function(x){return {name:x[0],tag:x[1],qty:x[2]};}),
     weapons: kit.weapons.map(function(x){return {name:x[0],stat:x[1],dmg:x[2]};}),
     allies: kit.allies.map(function(x){return {name:x[0],type:x[1],bonus:x[2]};}),
-    gold: 0, buffs: []
+    gold: 0, buffs: [], torchLit: false, torchFuel: 0
   };
 }
 function skillMod(ch, skill){
@@ -511,9 +517,10 @@ const WORLD = { seed:"dragonsmaw", rooms:new Map(), visited:new Set(), openEdges
 function newWorld(seed){
   WORLD.seed = seed || "dungeon"; WORLD.rooms = new Map(); WORLD.visited = new Set(); WORLD.openEdges = new Set();
   WORLD.pos = {x:0,y:0,z:0}; WORLD.selection = null; WORLD.logLines = []; WORLD.hero = makeHero(WORLD.seed);
-  visit(); logLine("You enter the dungeon <b>“"+WORLD.seed+"”</b> as a "+WORLD.hero.cls+".", "gold"); renderAll();
+  lightTorch(WORLD.hero);
+  visit(); logLine("You enter the dungeon <b>“"+WORLD.seed+"”</b> as a "+WORLD.hero.cls+", torch ablaze.", "gold"); renderAll();
 }
-function newHeroOnly(){ WORLD.hero = makeHero(WORLD.seed + "#" + (WORLD.logLines.length + Math.floor(WORLD.hero.hp))); logLine("A new champion answers the call: a <b>"+WORLD.hero.cls+"</b>.", "gold"); renderAll(); }
+function newHeroOnly(){ WORLD.hero = makeHero(WORLD.seed + "#" + (WORLD.logLines.length + Math.floor(WORLD.hero.hp))); lightTorch(WORLD.hero); logLine("A new champion answers the call: a <b>"+WORLD.hero.cls+"</b>.", "gold"); renderAll(); }
 function curRoom(){ return genRoom(WORLD.pos.x, WORLD.pos.y, WORLD.pos.z); }
 function visit(){ WORLD.visited.add(WORLD.pos.x+","+WORLD.pos.y+","+WORLD.pos.z); genRoom(WORLD.pos.x,WORLD.pos.y,WORLD.pos.z); }
 function isEdgeOpen(x,y,z,dir){ return WORLD.openEdges.has(edgeKey(x,y,z,dir)); }
@@ -524,6 +531,13 @@ function selectExit(dir){
   if(MOVE) return;
   const p = WORLD.pos; const info = curRoom().exits[dir]; if(!info || !info.exists) return;
   if(info.hidden && !revealedSecret(p.x,p.y,p.z,dir) && !curRoom().searched) return;
+  if(roomHasEnemy()){                                        // enemies bar every exit
+    const mon = curRoom().features.find(function(f){ return f.type==="monster" && !f.resolved; });
+    logLine("⚔️ The <b>"+mon.monster.name+"</b> blocks your escape — deal with it first.", "bad");
+    WORLD.selection = {kind:"feature", fid:mon.id, f:mon};   // surface the fight/sneak options
+    renderPanel(); renderRoom(); renderLog();
+    return;
+  }
   if(info.type==="passage" || isEdgeOpen(p.x,p.y,p.z,dir)){ move(dir); return; }
   WORLD.selection = {kind:"exit", dir:dir, info:info}; renderPanel(); renderRoom();
 }
@@ -547,9 +561,13 @@ function resolveMethod(method){
   const ch = WORLD.hero; if(ch.hp<=0) return; const sel = WORLD.selection;
   const outcome = method.resolve(ch, sel.f);
   logLine((outcome.ok?"✔ ":"✖ ")+outcome.text, outcome.ok?"good":"bad");
-  const isExit = sel.kind==="exit";
-  applyEffects(outcome.effects||{}, isExit, sel.dir, sel.kind==="feature"?sel.f:null);
-  const moving = outcome.effects && (outcome.effects.open||outcome.effects.descend||outcome.effects.ascend);
+  const isExit = sel.kind==="exit", fx = outcome.effects||{};
+  const isMon = sel.kind==="feature" && sel.f.type==="monster";
+  const lay = isMon && ROOMLAYOUT ? ROOMLAYOUT.feats.find(function(x){return x.f.id===sel.f.id;}) : null;
+  if(isMon && fx.dmg && !fx.remove){ sel.f.react = {type:"lunge", t0: performance.now()}; }   // it strikes back
+  applyEffects(fx, isExit, sel.dir, sel.kind==="feature"?sel.f:null);
+  if(isMon && fx.remove && lay){ spawnBurstAt(performance.now(), lay.c*TS+TS/2, lay.r*TS+TS-6); }  // slain / evaded
+  const moving = fx.open||fx.descend||fx.ascend;
   if(!moving){ renderAll(); if(sel.kind==="feature" && sel.f.resolved){ WORLD.selection=null; renderPanel(); renderRoom(); } }
 }
 // Movement: a camera slide from this room to the next while the hero walks in
@@ -599,6 +617,23 @@ function shortRest(){
   const heal = Math.max(1, roll(2,6) + mod(ch.stats.CON)); const before = ch.hp; ch.hp = Math.min(ch.maxHp, ch.hp+heal);
   logLine("🔥 You rest and recover <b>"+(ch.hp-before)+" HP</b>.", "good"); renderAll();
 }
+// Torch is a consumable light source: lighting one spends a Torch from your pack.
+function lightTorch(ch){ if(!consume(ch,"torch")) return false; ch.torchLit = true; ch.torchFuel = TORCH_DURATION; return true; }
+function torchSpares(ch){ const it = ch.inventory.find(function(i){return i.tag==="torch";}); return it? it.qty : 0; }
+function relightTorch(){
+  const ch = WORLD.hero;
+  if(torchSpares(ch)<=0){ logLine("You have no more torches to light.", "bad"); renderLog(); return; }
+  lightTorch(ch);
+  logLine("🔥 You spark a fresh torch — light floods back.", "gold"); renderAll();
+}
+function updateTorchBtn(){
+  const b = document.getElementById("torchBtn"); if(!b) return; const ch = WORLD.hero;
+  const spares = torchSpares(ch);
+  const canLight = spares>0 && (!ch.torchLit || ch.torchFuel < TORCH_DURATION*0.85);
+  b.disabled = !canLight;
+  b.innerHTML = "🕯️ Light Torch" + (spares? (" ("+spares+")") : "");
+}
+function roomHasEnemy(){ return curRoom().features.some(function(f){ return f.type==="monster" && !f.resolved; }); }
 
 /* =========================================================================
    RENDERING — pixel-art canvas room + sprite character sheet
@@ -613,11 +648,13 @@ let ROOMLAYOUT = null;
 let MOVE = null;                                   // active room-to-room camera slide
 const SLIDE_DUR = 1750;                            // ms for the full slide (calm & readable)
 const HERO_CX = HERO_TILE[0]*TS + TS/2, HERO_BY = HERO_TILE[1]*TS + TS;
-let DUST = [];                                     // footstep dust particles
+let DUST = [];                                     // footstep / impact particles
 let lastPuff = 0;
+const TORCH_DURATION = 80000;                      // ms a lit torch burns
+let lastTime = 0;                                  // frame delta clock for torch burn
 
 function renderAll(){ renderSheet(); renderRoom(); renderPanel(); renderLog(); renderMinimap(); renderMeta(); }
-function renderMeta(){ const rm = curRoom(); $("#roomTitle").textContent = rm.name; $("#depthTag").textContent = "Depth "+(WORLD.pos.z+1); $("#mmDepth").textContent = (WORLD.pos.z+1); $("#searchBtn").disabled = rm.searched; }
+function renderMeta(){ const rm = curRoom(); $("#roomTitle").textContent = rm.name; $("#depthTag").textContent = "Depth "+(WORLD.pos.z+1); $("#mmDepth").textContent = (WORLD.pos.z+1); $("#searchBtn").disabled = rm.searched; updateTorchBtn(); }
 
 /* ---- character sheet ---- */
 function heartRow(ch){
@@ -637,6 +674,9 @@ function renderSheet(){
     "<h2>"+pxIcon(curFrame(ch.sprite)||animFrames(ch.sprite)[0],2)+" "+ch.name+"</h2>"+
     "<div class='hint' style='text-align:left;margin:-2px 0 8px'>Level "+ch.level+" "+ch.cls+" · AC "+ch.ac+" · Prof "+fmtMod(ch.prof)+" · "+pxIcon("coin_anim_f0",2)+" "+ch.gold+"</div>"+
     "<div class='hearts'>"+heartRow(ch)+"<span class='hp'>"+ch.hp+" / "+ch.maxHp+" HP</span></div>"+
+    "<div class='torchrow"+(ch.torchLit?"":" out")+"'><span class='tlabel'>"+(ch.torchLit?"🔥":"🕯️")+" Torch</span>"+
+      "<div class='meter torch'><span id='torchFuel' style='width:"+(ch.torchLit?Math.round(100*Math.max(0,ch.torchFuel)/TORCH_DURATION):0)+"%'></span></div>"+
+      "<span class='tspare'>×"+torchSpares(ch)+" spare</span></div>"+
     "<div class='stats'>"+stats+"</div>"+ buffs +
     "<h3>Skills</h3><div class='skills'>"+skillChips+"</div>"+
     "<h3>Inventory</h3><div class='taglist'>"+items+"</div>"+
@@ -681,11 +721,12 @@ function drawCenteredBottomFlip(name, cx, by, flip){ const f = FRAMES[name]; if(
 // small props drawn larger so they read clearly on the tile grid
 const FEATURE_SCALE = { treasure:2, chasm:1, trapdoor:1, ascent:1 };
 // Paint a room layout at a pixel offset (offsets let two rooms slide past each other).
-function drawLayoutAt(L, ox, oy, active){
+function drawLayoutAt(L, ox, oy, active, now){
   L.floors.forEach(function(t){ drawFrame(t[2], t[0]*TS+ox, t[1]*TS+oy); });
   for(let c=0;c<COLS;c++){ const top=c===0?"wall_top_left":c===COLS-1?"wall_top_right":"wall_top_mid"; drawFrame(top, c*TS+ox, oy); drawFrame(top, c*TS+ox, (ROWS-1)*TS+oy); }
   for(let rr=1;rr<ROWS-1;rr++){ drawFrame("wall_left", ox, rr*TS+oy); drawFrame("wall_right", (COLS-1)*TS+ox, rr*TS+oy); }
   const sel = active ? WORLD.selection : null;
+  const barred = active && L.feats.some(function(ft){ return ft.f.type==="monster"; });   // enemies seal the exits
   ["N","E","S","W"].forEach(function(dir){
     const d = L.doors[dir]; if(!d.shown) return;
     const dx = d.draw[0]+ox, dy = d.draw[1]+oy;
@@ -697,10 +738,16 @@ function drawLayoutAt(L, ox, oy, active){
       const badge = {locked:"#d8a94a", warded:"#8a5cff", rubble:"#8a8078"}[d.info.type];
       if(badge){ ctx.fillStyle = badge; ctx.fillRect(dx+14, dy+13, 4, 6); ctx.fillStyle="#20160a"; ctx.fillRect(dx+15, dy+15, 2, 2); }
     }
+    if(barred){ ctx.fillStyle="rgba(150,30,24,0.40)"; ctx.fillRect(dx, dy, 32, 32); ctx.fillStyle="rgba(30,20,16,0.92)"; ctx.fillRect(dx+2, dy+14, 28, 3); ctx.fillRect(dx+2, dy+22, 28, 3); }
     if(sel && sel.kind==="exit" && sel.dir===dir){ ctx.strokeStyle="#f2c94c"; ctx.lineWidth=1; ctx.strokeRect(dx+0.5, dy+0.5, 31, 31); }
   });
   L.feats.forEach(function(ft){
-    const cx = ft.c*TS + TS/2 + ox, by = ft.r*TS + TS + oy;
+    let rox=0, roy=0;
+    if(active && ft.f.react){ const age=now-ft.f.react.t0;                                 // lunge toward the hero, then recoil
+      if(age<340){ const k=Math.sin(Math.PI*age/340); const ddx=HERO_TILE[0]-ft.c, ddy=HERO_TILE[1]-ft.r, len=Math.hypot(ddx,ddy)||1; rox=(ddx/len)*5*k; roy=(ddy/len)*5*k; }
+      else { ft.f.react=null; }
+    }
+    const cx = ft.c*TS + TS/2 + ox + rox, by = ft.r*TS + TS + oy + roy;
     if(ft.hiddenTrap){ ctx.fillStyle="rgba(80,70,55,.7)"; ctx.fillRect(ft.c*TS+6+ox, ft.r*TS+7+oy, 4,2); ctx.fillRect(ft.c*TS+8+ox, ft.r*TS+9+oy, 3,2); }
     else { drawCenteredBottom(curFrame(featureSprite(ft.f)), cx, by, FEATURE_SCALE[ft.f.type]||1); }
     if(sel && sel.kind==="feature" && sel.fid===ft.f.id){ ctx.strokeStyle="#f2c94c"; ctx.lineWidth=1; ctx.strokeRect(ft.c*TS+0.5+ox, ft.r*TS+0.5+oy, TS-1, TS-1); }
@@ -723,19 +770,30 @@ function spawnLandingPuff(now){
       vx: Math.cos(ang)*spd, vy: Math.sin(ang)*spd*0.45 - 8, born: now, life: 520, sz: 1 + Math.floor(Math.random()*2) });
   }
 }
+// A dust burst at an arbitrary spot (e.g. where a monster fell).
+function spawnBurstAt(now, x, y){
+  for(let i=0;i<12;i++){
+    const ang = Math.PI*2*i/12 + Math.random()*0.5, spd = 12 + Math.random()*22;
+    DUST.push({ x:x, y:y, vx: Math.cos(ang)*spd, vy: Math.sin(ang)*spd*0.6 - 6, born: now, life: 480, sz: 1 + Math.floor(Math.random()*2) });
+  }
+}
 // Torch-lit fog of war: a flickering pool of light around the hero, the rest
 // swallowed by darkness. Brighter while you carry a lit Torch.
 function drawTorchlight(now){
-  const cx = HERO_CX, cy = HERO_BY - 9;
-  const flick = REDUCED ? 1 : (1 + Math.sin(now/110)*0.03 + Math.sin(now/47)*0.015);
-  const R = (hasItem(WORLD.hero,"torch") ? 118 : 66) * flick;
+  const ch = WORLD.hero, cx = HERO_CX, cy = HERO_BY - 9;
+  const lit = ch.torchLit;
+  const fuel = lit ? Math.max(0, ch.torchFuel)/TORCH_DURATION : 0;
+  const low = lit && fuel < 0.18;                                   // sputtering near the end
+  const flick = REDUCED ? 1 : (1 + Math.sin(now/110)*0.03 + Math.sin(now/47)*0.015 + (low ? (Math.random()*0.10-0.05) : 0));
+  const R = (lit ? (84 + 42*fuel) : 58) * flick;                    // shrinks as it burns; dim when out
   const dark = ctx.createRadialGradient(cx, cy, R*0.42, cx, cy, R);
   dark.addColorStop(0, "rgba(6,5,3,0)");
-  dark.addColorStop(0.72, "rgba(6,5,3,0.34)");
-  dark.addColorStop(1, "rgba(4,3,2,0.9)");
+  dark.addColorStop(0.72, "rgba(6,5,3,0.36)");
+  dark.addColorStop(1, "rgba(3,2,1,0.94)");
   ctx.fillStyle = dark; ctx.fillRect(0,0,canvas.width,canvas.height);
-  const warm = ctx.createRadialGradient(cx, cy, 0, cx, cy, R*0.7);   // warm torch glow
-  warm.addColorStop(0, "rgba(255,170,80,0.12)");
+  const glow = lit ? (0.13 - (low?0.03:0)) : 0.03;                  // warm torch glow, cool when dark
+  const warm = ctx.createRadialGradient(cx, cy, 0, cx, cy, R*0.7);
+  warm.addColorStop(0, "rgba(255,170,80,"+glow.toFixed(3)+")");
   warm.addColorStop(1, "rgba(255,170,80,0)");
   ctx.fillStyle = warm; ctx.fillRect(0,0,canvas.width,canvas.height);
 }
@@ -748,14 +806,14 @@ function paintRoom(){
     const v = DIRS[MOVE.dir], S = canvas.width;
     const p = easeInOut(Math.max(0, Math.min(1, (now-MOVE.t0)/SLIDE_DUR)));
     const ox = -v.dx*p*S, oy = -v.dy*p*S;                       // camera pans toward the new room
-    drawLayoutAt(MOVE.fromLayout, ox, oy, false);
-    drawLayoutAt(MOVE.toLayout, ox + v.dx*S, oy + v.dy*S, false);
+    drawLayoutAt(MOVE.fromLayout, ox, oy, false, now);
+    drawLayoutAt(MOVE.toLayout, ox + v.dx*S, oy + v.dy*S, false, now);
     drawDust(now);
     drawCenteredBottomFlip(curFrame(hero.spriteRun), HERO_CX, HERO_BY, v.dx < 0);   // hero walks in place, camera follows
     drawTorchlight(now);
   } else {
     if(!ROOMLAYOUT) return;
-    drawLayoutAt(ROOMLAYOUT, 0, 0, true);
+    drawLayoutAt(ROOMLAYOUT, 0, 0, true, now);
     drawCenteredBottom(curFrame(hero.sprite), HERO_CX, HERO_BY);
     drawDust(now);                                              // landing puff settles here
     drawTorchlight(now);
@@ -764,7 +822,8 @@ function paintRoom(){
 function renderRoom(){
   layoutRoom();
   const live = ROOMLAYOUT.feats.length;
-  $("#hint").textContent = live ? (live+" thing(s) here. Click a door (N/E/S/W) or an object.") : "Room cleared. Choose an exit.";
+  $("#hint").textContent = roomHasEnemy() ? "⚔️ An enemy guards this chamber — defeat or slip past it to open the exits."
+    : (live ? (live+" thing(s) here. Click a door (N/E/S/W) or an object.") : "Room cleared. Choose an exit.");
   if(atlasReady) paintRoom();
 }
 canvas.addEventListener("click", function(e){
@@ -819,6 +878,13 @@ function renderMinimap(){
 let lastPaint = 0;
 function tickAnim(){
   const now = performance.now();
+  const dt = lastTime ? Math.min(120, now-lastTime) : 0; lastTime = now;
+  const ch = WORLD.hero;
+  if(ch && ch.torchLit){                        // the torch burns down in real time
+    ch.torchFuel -= dt;
+    const tf = document.getElementById("torchFuel"); if(tf) tf.style.width = (100*Math.max(0,ch.torchFuel)/TORCH_DURATION).toFixed(1)+"%";
+    if(ch.torchFuel<=0){ ch.torchFuel=0; ch.torchLit=false; logLine("🕯️ Your torch gutters out — the dark closes in.","bad"); renderSheet(); renderLog(); updateTorchBtn(); }
+  }
   if(MOVE){                                    // smooth repaint + brisk stride while sliding
     frameIndex = Math.floor(now/130);
     if(atlasReady) paintRoom();
@@ -837,6 +903,7 @@ if(!REDUCED) requestAnimationFrame(tickAnim);
 $("#newBtn").addEventListener("click", function(){ const s = $("#seedInput").value.trim() || randomSeedWord(); $("#seedInput").value = s; newWorld(s); });
 $("#rerollChar").addEventListener("click", newHeroOnly);
 $("#searchBtn").addEventListener("click", searchRoom);
+$("#torchBtn").addEventListener("click", relightTorch);
 $("#restBtn").addEventListener("click", shortRest);
 $("#seedInput").addEventListener("keydown", function(e){ if(e.key==="Enter") $("#newBtn").click(); });
 const SEED_WORDS=["dragonsmaw","hollowfen","ashvault","grimhold","netherreach","blackmarsh","ruincrown","moldspire","direwell","gravecant"];
