@@ -599,7 +599,7 @@ const canvas = $("#room"), ctx = canvas.getContext("2d");
 ctx.imageSmoothingEnabled = false;
 let ROOMLAYOUT = null;
 let MOVE = null;                                   // active room-to-room walk transition
-const MOVE_DUR = 300, WALK_STEP = 108;             // ms per phase, px the hero strides
+const MOVE_DUR = 720, WALK_STEP = 108;             // ms per phase, px the hero strides
 const HERO_CX = HERO_TILE[0]*TS + TS/2, HERO_BY = HERO_TILE[1]*TS + TS;
 
 function renderAll(){ renderSheet(); renderRoom(); renderPanel(); renderLog(); renderMinimap(); renderMeta(); }
@@ -771,7 +771,7 @@ let lastFi = -1;
 function tickAnim(){
   const now = performance.now();
   if(MOVE){                                    // smooth repaint + brisk stride while walking
-    frameIndex = Math.floor(now/90);
+    frameIndex = Math.floor(now/130);
     if(atlasReady && ROOMLAYOUT) paintRoom();
     stepMove(now);
   } else {                                     // idle: throttle to the sprite frame rate
