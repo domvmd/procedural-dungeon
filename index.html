@@ -199,6 +199,22 @@ const atlasImg = new Image();
 let atlasReady = false;
 atlasImg.onload = function(){ atlasReady = true; if(ROOMLAYOUT) paintRoom(); };
 atlasImg.src = ATLAS_SRC;
+// --- Generated hero attack animations (PixelLab, 0x72-matched). 40x40 frames, feet-anchored. ---
+const ATTACK_B64 = {
+  wizzard_m: [
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAABT0lEQVR4nO2VMUvDUBDH/1X3foFMV7pYyNRQJ4fg4KZTXcQOUsjeyU3oIGR1LM7FqTi4ia6KGQRRKML7BhmcMj1eB0lqmyry7gUq3A8CjyO5/HIv9w4QBEEQBEEQ1hUiMkRkqnzHBjdBpz1ClZJbLpJ02iMA/QVJpVTNRW52EiIyX4JzdFhHEncB8EVZDy/L6bBeuieJuyxJZxVcltu8/yzWT0nfWrLyCubYVtJa0LZzXTXPnyAi8/pwbXSWmvhw1+gsNTpLze35UXHlMdsPcnLM5DRbAQDg8iQoxWwrxz6oq8aZ4GA8QeR7iHxvIR75Hj7enq3/WadbPBhPSrF9Zk5WBZVStYPTMxz3XvD+eMdUWY2TLdZhHcNp40fJZitYjyb5TdIW5108nDac5mM1STHqvs1dAEBvvuRWlD2LV8Vvri6wvbMHgH9QC4Lw35kBPtSFMzLRyGQAAAAASUVORK5CYII=",
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAAB1ElEQVR4nO2Yz0sCQRTHv5Pd/Qc8LXhpwYtaHTqJh65exAi8BRIIoWD0F0hCXoIgoosQihfp1iG8h3rsFPQ/SHWU7eDOOMv+UOftmtB8YNF1Z30f3pu3M8oMw8A2s/PXAsvQglS0IBUtSEULUtGCVLQglTAELfuIhFAyeJB5ACISDa3EtiQQsuhuwDU5CFvly7jkLBfHuFXk9690rx/MZ0dtDa5McVJovvsFsqTMYZaLuwaMW0WSJLXE7G18BsAtFxtOERtO5fmphJ8gs7Mm4xVEZDA2nDouzHJxcWQafWVJvxK7pHq1NErtCbAol2pW1ir3MkGOBXhLPj82sXeYx81JAfXuAADwcn0ubjy+vAMAJM3s2nLA6nOQAWCl9gS9WpoLuzKYNLNcxOszpUZZt0lkyY2g0sUOyZ/vLwBAvTtAJZVAJZVwDK6kEvh4HwERNUkQFp+T+0cXeLo/DRysWmaSoHzCm8ULyhxUFbRuy4tmqHZG4r1dzlDkgOC1OBBZCgC4cNLMyhsHMspLnb06iFcZeRWhoppBJu1WkGn0UZ1vCgSfrx0Y+TLFbR6I+P9g4KODl9reUGy0STguQf58tJdERyyVAFTByPkXv+oiRQtS2XrBX6uviFh/ThK/AAAAAElFTkSuQmCC",
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAABz0lEQVR4nO2WMUsDMRSAv7PuXVxcK13sIvSKzuLg6iItiE6CCC4V6g8QFAVdBB2ki0tLl+LmIJ0tbaHLCdIf4NwfIOfQa7y79mzMa7HDfZDhLiH5yHsviZVKpZhnFv5bYBKxoJRYUEosKCUWlBILStEW7Dktt+e03FnKjENLMELM9dpMmSgYlvN/r9uPMGPJXwWjQhohGW5TwdJ5D/qF0pkcgOV9up6g4mszCUD7etc/zhitHPSk6JSPwl0BgaEcgF2qYZdq4t3UrWILIH/boVrM4l+02T4ckQNINPokGn1xnmofM+lMbly4VIgTjX6g42szqZpdqhlLauVgWKpazJK/7ZisB3/My0XTVYY8ly9Z3djiprDDaaUOwMvVserfPrsHRopLG5OrzvLlYoB0JqcKasw/o4qe+7vYJAeHqFzsOS0Abgo7AGTWltUgp/vJaaVuvIviHLzbH4Sw57RUDvrZFs5vGmLXLtUClfz+9ho5+F9z8ORpEN6Lh6WxkhI5EAp6BzDVYpZm+5Dzj5VA/95BVzI9ICySoaD3MFDC8HOzeFeh8Q5KBMEnGYX0VTP356D4mAk/EqaNOMS665guIN1B8Yt5EnOfg7GglFhQyjf6rpdkmK0gnwAAAABJRU5ErkJggg==",
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAABoElEQVR4nO2WsUsCURzHP5ftLo1OQkuCi4rN0tDqIra0BRK4KBT+A0lCLkEN0uKitBxtDeFcqKMt/Qm1uLXItZznyWX37v1OErwPHMLx7r0P3/d+/p6RTCbZZHb+W8CPSFBKJCglEpQSCUqJBKVEglLCELTsZy2EkmA+24E1iYa2xbYkhCy6G9ZEsJCcFeKMWqW5pCGZ0xDeqC1XcswKcc+AUasEAknpFhtvozPAKxcbTIkNpu7zqbfAuhOco5ukRFA3lUCSkiIxAOvpocnB4RE3J0XqPROA5+tzZ9Dx5R0A+6lcYDmpoAdbgtvTnOcdmoWyFa0OgHrPpJJOUEknlt5X0gk+JkPQPLPSKgbXOfwL3TOom+C8nVn5bIer+z3eX19U5QK1QpUEPZPNi6DaHaqu49CvZQAot8egkKhSFfdrGcrtsfP724JuPr8WG1PtDp3vzEYK+AbAbKQoNieWn6TqGVxKUSVBxZR9E9QtkiXh7MWjZ4Dd2lbJ+CbnfBRmL16FfaHQ+qMWCwZZS2cBaasTXUZV2J5Wty4iQSkbL/gDnt9y7i/EIGEAAAAASUVORK5CYII=",
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAABjklEQVR4nO2WMUvDQBiG31j3Lo6ZAi4KWdqgc3FwdRFcuglBcGlB/4Gi4FTQQVxcWlyKm4N0VtI1LvkV/QElDr0LF69pLvddsOg9cCRc0tzDe3f9zvE8D+vMxm8LlGEFqVhBKlaQihWkYgWpWEEqVMGUtdogJ7jXfgRqlDQyxYKk2IzgGDiwpkwwY95pYnp7nI1B+ThVMCc37zSlF5iotiR1ip3P6SkAWa4xmaExmZHXaO0JcnSTpAjqplJJclNzED5Q+vp0jZ39A9ydHKE/HAMA3m7OspcOL+8BANu7QWU5qqAEk8CgG0h90Nwof77UZfSHY4S+i9B3c/2h7yKJI0BzzRr5o+brcBXiGkziKGV9pdNupBZfPWzh6+O9ktzP+yJUEjRWV9lUS6xKUinBUa9VehUbsNjJfDePeq1COSaeFqWpugaX/njQDXD+vHxgLic+10mQXOoAoH3xIj0QTjPZWPxGTKtsoxitxUWwA0VOJImjVGUXG0lQEa1KQi11pMOoCv+n1NWFFaSy9oLfpSGEbLnrlz0AAAAASUVORK5CYII=",
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAABkUlEQVR4nO2WMUvDQBTH/7HuXRwzBbpYyJIGnYuDq4vg0kWEILi0oN9AUXAqqCAuLi0uxc1BOivpWpd+in6Akg7eHWkvNZd7Fyx6PzgSLnd5P17u8s7xPA/rzMZvC+RhBalYQSpWkIoVpGIFqVhBKlTBhLXSIGdwp/EIlChp5BOnJNPNCI6BA2vCBAWzZhWjm0MRg/JyquCC3KxZlQYwUW1J6id2PkcnAGS5ynCKynBKXqOlZ5Cjm0mKoG5WCkluagbhgZLXpyts7+7h9ugAnd4AAPB2fSoG7V/cAQBq9bCwHFVQgkmg2wqlPmhulD9f6gSd3gCR7yLy3YX+yHcxGceA5po18qPm6/AndNegkVp8eb+Fr4/3lWOW5AqVQpUMGj0I9NsBguMHAECtHuZmVCmD/XaQe0034Hsn8908Gcein8ux/iTrPo3qGsyc3G2FOHuOMydwuaznbNMoZZBc6gCgcf4iPUidZkSspXlKG8ZoLV4FO1Bo/aiNZFA1lk4AaqkjHUZV+D+lriysIJW1F5wD8551pKUkyQAAAAAASUVORK5CYII=",
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAABh0lEQVR4nO2WPUvDQBiAn1j3Lo6dCi4KXWzQuTi4uogu3YQguFjQf6Ao6FLQQVxcKi7FzUE6K62jLv6K/oASB3MhbfpxufeCRe+BI3C53PvkzV3e88rlMvPMwm8LzMIJSnGCUpygFCcoxQlKcYJSpIJh1HJDnMH16i3kKGnlEyckk80KnoUDaxgJxgxqRXoXO3EMyeRSwSG5Qa2YGhCJGktKP7H31tsH0nKFTp9Cpy9eo7lnUGGaSYmgaVYySS4aBlGBwqe7M1Y2Nrnc26bRagPwfH4QD9o6uQZgedXPLCcVTBFJ0Kz7qT4MN8qfL3UxjVaboFIiqJSG+oNKia+PLhiuWSs/arUOp2G6Bq3U4tObJT5fXyaOGZHLVAp1Mmj1IPBwtAbA7tU7aGRUK4Nq0mnXZIOfnax2c7J/ZM6ZL6+7BsdO1Kz7HN53xz6g5CbdV/FnBRaXOoDq8WPqRuI0M04mRHPDWK3Fk4gOFEY/aisZ1I1lEkBa6kSHUR3+T6nLCycoZe4FvwFoXWugJfOX7gAAAABJRU5ErkJggg==",
+  ],
+};
+// Per-class draw config: ax/ay = source anchor (body-center x, feet y) in the 40x40 frame.
+const ATTACK_CFG = { wizzard_m: { ax:20, ay:34 } };
+const ATTACK_IMG = {};
+(function(){ for(const k in ATTACK_B64){ ATTACK_IMG[k] = ATTACK_B64[k].map(function(src){ const im=new Image(); im.src=src; return im; }); } })();
 const REDUCED = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
 
 const ANIM_CACHE = {};
@@ -278,7 +294,7 @@ function makeHero(seedStr){
   const kit = kits[Math.floor(r()*kits.length)];
   const maxHp = 20 + con*3 + Math.floor(r()*8);
   return {
-    name: kit.name+" of the Deep", cls: kit.name, sprite: kit.sprite, spriteRun: kit.sprite.replace("_idle_","_run_"), spriteHit: kit.sprite.replace("_idle_","_hit_"), level: 3, prof: 2,
+    name: kit.name+" of the Deep", cls: kit.name, sprite: kit.sprite, spriteRun: kit.sprite.replace("_idle_","_run_"), spriteHit: kit.sprite.replace("_idle_","_hit_"), spriteAtkKey: kit.sprite.replace("_idle_anim",""), level: 3, prof: 2,
     stats:stats, maxHp:maxHp, hp: maxHp, ac: 12 + mod(stats.DEX),
     proficient: new Set(kit.prof),
     inventory: kit.items.map(function(x){return {name:x[0],tag:x[1],qty:x[2]};}),
@@ -780,16 +796,37 @@ function drawWeaponSwing(ch, hx, hy, facing, k){
   ctx.drawImage(atlasImg, f[0],f[1],w,h, -w/2, -h, w, h); ctx.restore();
 }
 function monTile(f){ const lay = ROOMLAYOUT && ROOMLAYOUT.feats.find(function(x){return x.f.id===f.id;}); return lay ? {c:lay.c, r:lay.r} : {c:HERO_TILE[0], r:HERO_TILE[1]-2}; }
-// The hero, with attack lunge + weapon swing, or the hit frame + red flash + recoil.
+// Draw a generated attack frame (PixelLab), feet-anchored to (hx,hy) and mirrored when facing left.
+// The 40x40 frames are body-centred (ax = frame centre), so flipping about hx keeps the wizard in place
+// while the cast/projectile sweeps to the correct side.
+function drawHeroAttack(key, imgs, prog, hx, hy, flip){
+  const n=imgs.length; let idx=Math.floor(prog*n); if(idx<0) idx=0; if(idx>=n) idx=n-1;
+  const im=imgs[idx]; if(!im || !im.complete || !im.naturalWidth) return false;
+  const cfg=ATTACK_CFG[key] || { ax:im.naturalWidth/2, ay:im.naturalHeight };
+  const w=im.naturalWidth, h=im.naturalHeight, dx=Math.round(hx-cfg.ax), dy=Math.round(hy-cfg.ay);
+  ctx.imageSmoothingEnabled=false;
+  if(flip){ ctx.save(); ctx.translate(dx+w, dy); ctx.scale(-1,1); ctx.drawImage(im, 0,0,w,h, 0,0,w,h); ctx.restore(); }
+  else ctx.drawImage(im, 0,0,w,h, dx,dy,w,h);
+  return true;
+}
+// The hero, with attack lunge (+ generated attack frames, or a procedural weapon swing as fallback),
+// or the hit frame + red flash + recoil.
 function drawHero(now){
-  const hero=WORLD.hero; let hx=HERO_CX, hy=HERO_BY, name=curFrame(hero.sprite), flip=false, redFlash=0, swinging=false, swingK=0, swingFacing=1;
+  const hero=WORLD.hero; let hx=HERO_CX, hy=HERO_BY, name=curFrame(hero.sprite), flip=false, redFlash=0, swinging=false, swingK=0, swingFacing=1, atkProg=-1, atkFlip=false;
   const A=hero.atkAnim;
-  if(A){ const age=now-A.t0; if(age>=0 && age<A.dur){ const k=Math.sin(Math.PI*age/A.dur); hx+=A.dx*11*k; hy+=A.dy*11*k; if(Math.abs(A.dx)>0.3) flip=A.dx<0; swinging=true; swingK=age/A.dur; swingFacing=(A.dx<-0.3?-1:1); } else if(age>=A.dur) hero.atkAnim=null; }
+  if(A){ const age=now-A.t0; if(age>=0 && age<A.dur){ const k=Math.sin(Math.PI*age/A.dur); hx+=A.dx*11*k; hy+=A.dy*11*k; if(Math.abs(A.dx)>0.3) flip=A.dx<0; swinging=true; swingK=age/A.dur; swingFacing=(A.dx<-0.3?-1:1); atkProg=age/A.dur; atkFlip=(A.dx<-0.3); } else if(age>=A.dur) hero.atkAnim=null; }
   const H=hero.hurtAnim;
   if(H){ const age=now-H.t0; if(age>=0 && age<H.dur){ name=animFrames(hero.spriteHit)[0]||name; const k=1-age/H.dur; hx+=H.dx*4*k; hy+=H.dy*4*k; redFlash=k*0.55; if(Math.abs(H.dx)>0.3) flip=H.dx<0; } else if(age>=H.dur) hero.hurtAnim=null; }
-  drawCenteredBottomFlip(name, hx, hy, flip);
-  if(redFlash>0) drawTint(name, hx, hy, 1, "#c83a2a", redFlash, flip);
-  if(swinging) drawWeaponSwing(hero, hx, hy, swingFacing, swingK);
+  const atkImgs = (atkProg>=0 && hero.spriteAtkKey) ? ATTACK_IMG[hero.spriteAtkKey] : null;
+  if(redFlash>0){                                                    // taking damage overrides the attack pose
+    drawCenteredBottomFlip(name, hx, hy, flip);
+    drawTint(name, hx, hy, 1, "#c83a2a", redFlash, flip);
+  } else if(atkImgs && drawHeroAttack(hero.spriteAtkKey, atkImgs, atkProg, hx, hy, atkFlip)){
+    // generated attack frame drawn — no idle sprite, no procedural swing
+  } else {
+    drawCenteredBottomFlip(name, hx, hy, flip);
+    if(swinging) drawWeaponSwing(hero, hx, hy, swingFacing, swingK);  // fallback for classes without generated frames
+  }
 }
 function animActive(){ const h=WORLD.hero; if(h && (h.atkAnim||h.hurtAnim)) return true; return !!(ROOMLAYOUT && ROOMLAYOUT.feats.some(function(ft){return ft.f.react||ft.f.hitFlash;})); }
 // small props drawn larger so they read clearly on the tile grid
