@@ -278,7 +278,7 @@ function makeHero(seedStr){
   const kit = kits[Math.floor(r()*kits.length)];
   const maxHp = 20 + con*3 + Math.floor(r()*8);
   return {
-    name: kit.name+" of the Deep", cls: kit.name, sprite: kit.sprite, spriteRun: kit.sprite.replace("_idle_","_run_"), level: 3, prof: 2,
+    name: kit.name+" of the Deep", cls: kit.name, sprite: kit.sprite, spriteRun: kit.sprite.replace("_idle_","_run_"), spriteHit: kit.sprite.replace("_idle_","_hit_"), level: 3, prof: 2,
     stats:stats, maxHp:maxHp, hp: maxHp, ac: 12 + mod(stats.DEX),
     proficient: new Set(kit.prof),
     inventory: kit.items.map(function(x){return {name:x[0],tag:x[1],qty:x[2]};}),
@@ -685,6 +685,7 @@ const HERO_TILE = [5,6];
 const SLOTS = [[5,2],[8,3],[9,6],[8,9],[5,9],[2,9],[1,6],[2,3],[7,4],[3,7]];
 const canvas = $("#room"), ctx = canvas.getContext("2d");
 ctx.imageSmoothingEnabled = false;
+const flashCanvas = document.createElement("canvas"), flashCtx = flashCanvas.getContext("2d");   // for sprite tint/flash
 let ROOMLAYOUT = null;
 let MOVE = null;                                   // active room-to-room camera slide
 const SLIDE_DUR = 1750;                            // ms for the full slide (calm & readable)
@@ -760,6 +761,37 @@ function drawCenteredBottom(name, cx, by, scale){ const f = FRAMES[name]; if(!f)
 function drawCenteredBottomFlip(name, cx, by, flip){ const f = FRAMES[name]; if(!f) return; const w=f[2], h=f[3], dx=Math.round(cx-w/2), dy=Math.round(by-h);
   if(flip){ ctx.save(); ctx.translate(dx+w, dy); ctx.scale(-1,1); ctx.drawImage(atlasImg, f[0],f[1],w,h, 0,0, w,h); ctx.restore(); }
   else { ctx.drawImage(atlasImg, f[0],f[1],w,h, dx,dy, w,h); } }
+// Flash a sprite a solid colour (white for a hit, red for the hero taking damage).
+function drawTint(name, cx, by, scale, color, alpha, flip){
+  const f = FRAMES[name]; if(!f) return; scale=scale||1; const w=f[2]*scale, h=f[3]*scale;
+  flashCanvas.width=w; flashCanvas.height=h; flashCtx.imageSmoothingEnabled=false; flashCtx.clearRect(0,0,w,h);
+  flashCtx.globalCompositeOperation="source-over"; flashCtx.drawImage(atlasImg, f[0],f[1],f[2],f[3], 0,0, w,h);
+  flashCtx.globalCompositeOperation="source-in"; flashCtx.fillStyle=color; flashCtx.fillRect(0,0,w,h); flashCtx.globalCompositeOperation="source-over";
+  ctx.globalAlpha=alpha;
+  if(flip){ ctx.save(); ctx.translate(Math.round(cx+w/2), Math.round(by-h)); ctx.scale(-1,1); ctx.drawImage(flashCanvas,0,0); ctx.restore(); }
+  else ctx.drawImage(flashCanvas, Math.round(cx-w/2), Math.round(by-h));
+  ctx.globalAlpha=1;
+}
+// The hero's equipped weapon, swept through a chopping arc during an attack.
+function drawWeaponSwing(ch, hx, hy, facing, k){
+  const wname = ch.weapons[0] && WEAPON_SPRITE[ch.weapons[0].name]; const f = FRAMES[wname]; if(!f) return;
+  const w=f[2], h=f[3], ang=(-1.15 + 1.85*k)*facing, px=hx+facing*3, py=hy-11;
+  ctx.save(); ctx.translate(px, py); ctx.rotate(ang); if(facing<0) ctx.scale(-1,1);
+  ctx.drawImage(atlasImg, f[0],f[1],w,h, -w/2, -h, w, h); ctx.restore();
+}
+function monTile(f){ const lay = ROOMLAYOUT && ROOMLAYOUT.feats.find(function(x){return x.f.id===f.id;}); return lay ? {c:lay.c, r:lay.r} : {c:HERO_TILE[0], r:HERO_TILE[1]-2}; }
+// The hero, with attack lunge + weapon swing, or the hit frame + red flash + recoil.
+function drawHero(now){
+  const hero=WORLD.hero; let hx=HERO_CX, hy=HERO_BY, name=curFrame(hero.sprite), flip=false, redFlash=0, swinging=false, swingK=0, swingFacing=1;
+  const A=hero.atkAnim;
+  if(A){ const age=now-A.t0; if(age>=0 && age<A.dur){ const k=Math.sin(Math.PI*age/A.dur); hx+=A.dx*11*k; hy+=A.dy*11*k; if(Math.abs(A.dx)>0.3) flip=A.dx<0; swinging=true; swingK=age/A.dur; swingFacing=(A.dx<-0.3?-1:1); } else if(age>=A.dur) hero.atkAnim=null; }
+  const H=hero.hurtAnim;
+  if(H){ const age=now-H.t0; if(age>=0 && age<H.dur){ name=animFrames(hero.spriteHit)[0]||name; const k=1-age/H.dur; hx+=H.dx*4*k; hy+=H.dy*4*k; redFlash=k*0.55; if(Math.abs(H.dx)>0.3) flip=H.dx<0; } else if(age>=H.dur) hero.hurtAnim=null; }
+  drawCenteredBottomFlip(name, hx, hy, flip);
+  if(redFlash>0) drawTint(name, hx, hy, 1, "#c83a2a", redFlash, flip);
+  if(swinging) drawWeaponSwing(hero, hx, hy, swingFacing, swingK);
+}
+function animActive(){ const h=WORLD.hero; if(h && (h.atkAnim||h.hurtAnim)) return true; return !!(ROOMLAYOUT && ROOMLAYOUT.feats.some(function(ft){return ft.f.react||ft.f.hitFlash;})); }
 // small props drawn larger so they read clearly on the tile grid
 const FEATURE_SCALE = { treasure:2, chasm:1, trapdoor:1, ascent:1 };
 // Paint a room layout at a pixel offset (offsets let two rooms slide past each other).
@@ -784,15 +816,19 @@ function drawLayoutAt(L, ox, oy, active, now){
     if(sel && sel.kind==="exit" && sel.dir===dir){ ctx.strokeStyle="#f2c94c"; ctx.lineWidth=1; ctx.strokeRect(dx+0.5, dy+0.5, 31, 31); }
   });
   L.feats.forEach(function(ft){
-    let rox=0, roy=0;
+    let rox=0, roy=0, flashA=0;
     if(active && ft.f.react){ const age=now-ft.f.react.t0;                                 // lunge toward the hero, then recoil
-      if(age<340){ const k=Math.sin(Math.PI*age/340); const ddx=HERO_TILE[0]-ft.c, ddy=HERO_TILE[1]-ft.r, len=Math.hypot(ddx,ddy)||1; rox=(ddx/len)*5*k; roy=(ddy/len)*5*k; }
-      else { ft.f.react=null; }
+      if(age>=0 && age<340){ const k=Math.sin(Math.PI*age/340); const ddx=HERO_TILE[0]-ft.c, ddy=HERO_TILE[1]-ft.r, len=Math.hypot(ddx,ddy)||1; rox=(ddx/len)*5*k; roy=(ddy/len)*5*k; }
+      else if(age>=340){ ft.f.react=null; }
+    }
+    if(active && ft.f.hitFlash){ const age=now-ft.f.hitFlash.t0;                            // white flash + knockback when struck
+      if(age>=0 && age<240){ flashA=1-age/240; const ddx=ft.c-HERO_TILE[0], ddy=ft.r-HERO_TILE[1], len=Math.hypot(ddx,ddy)||1; rox+=(ddx/len)*3*flashA; roy+=(ddy/len)*3*flashA; }
+      else if(age>=240){ ft.f.hitFlash=null; }
     }
     const cx = ft.c*TS + TS/2 + ox + rox, by = ft.r*TS + TS + oy + roy;
     if(ft.hiddenTrap){ ctx.fillStyle="rgba(80,70,55,.7)"; ctx.fillRect(ft.c*TS+6+ox, ft.r*TS+7+oy, 4,2); ctx.fillRect(ft.c*TS+8+ox, ft.r*TS+9+oy, 3,2); }
     else if(ft.f.type==="sconce"){ drawSconceBracket(cx, by); }   // flame drawn later, atop the fog
-    else { drawCenteredBottom(curFrame(featureSprite(ft.f)), cx, by, FEATURE_SCALE[ft.f.type]||1); }
+    else { const nm=curFrame(featureSprite(ft.f)), sc=FEATURE_SCALE[ft.f.type]||1; drawCenteredBottom(nm, cx, by, sc); if(flashA>0) drawTint(nm, cx, by, sc, "#ffffff", flashA*0.85, false); }
     if(sel && sel.kind==="feature" && sel.fid===ft.f.id){ ctx.strokeStyle="#f2c94c"; ctx.lineWidth=1; ctx.strokeRect(ft.c*TS+0.5+ox, ft.r*TS+0.5+oy, TS-1, TS-1); }
   });
 }
@@ -879,7 +915,7 @@ function paintRoom(){
   } else {
     if(!ROOMLAYOUT) return;
     drawLayoutAt(ROOMLAYOUT, 0, 0, true, now);
-    drawCenteredBottom(curFrame(hero.sprite), HERO_CX, HERO_BY);
+    drawHero(now);                                              // idle, or attack-swing / hurt-flinch
     drawDust(now);                                              // landing puff settles here
     drawTorchlight(now);
     ROOMLAYOUT.feats.forEach(function(ft){ if(ft.f.type==="sconce"){ drawSconceFlame(ft.c*TS+TS/2, ft.r*TS+TS-9, now); } });  // beacons through the dark
@@ -918,14 +954,16 @@ function rollReaction(f){ const under=monHp(f)<=f.mhpMax/2; const r=1+Math.floor
   if(r===10 || (r===9 && f.woundedLastRound)) return {type:"flee", note:"It edges toward an escape."};
   if(under && r<=2) return {type:"enrage", bonus:(r===1?4:2), note:"Cornered and enraged — it strikes harder!"};
   return {type:"attack", note:"It readies an attack."}; }
-function monsterStrike(f){
-  const ch=WORLD.hero;
+function monsterStrike(f, delay){
+  const ch=WORLD.hero; delay=delay||0; const t0=performance.now()+delay;
   let atk = f.atk + (hasAbil(f,"Pack") ? (monMembers(f)-1) : 0);
   if(f.reaction.type==="enrage") atk += f.reaction.bonus;
-  const total = d20()+atk; f.react={type:"lunge", t0:performance.now()};
+  const total = d20()+atk; f.react={type:"lunge", t0:t0};                                   // it steps in to strike
   if(total < ch.ac){ logLine("🛡️ The "+f.monster.name+" swings and misses ("+total+" vs AC "+ch.ac+").",""); return; }
   const loc=hitLocation(), die=roll(1,6); let dmg=die+loc[1]+f.dmg; if(hasAbil(f,"Large") && die<=2) dmg+=2; dmg=Math.max(1,dmg);
   ch.hp -= dmg; logLine("💥 The "+f.monster.name+" strikes your "+loc[0]+" for <b>"+dmg+"</b>.","bad");
+  const t=monTile(f), ax=HERO_TILE[0]-t.c, ay=HERO_TILE[1]-t.r, L=Math.hypot(ax,ay)||1;
+  ch.hurtAnim={t0:t0, dur:300, dx:ax/L, dy:ay/L};                                            // hero flinches away
   if(hasAbil(f,"Poison") && die<=2){ ch.poison+=1; logLine("☠️ Venom! Poison rises to "+ch.poison+".","bad"); }
   heroDeathCheck();
 }
@@ -948,13 +986,17 @@ function combatAction(f, action){
   let feared=false;
   if(hasAbil(f,"Fear")){ const s=d20fate()+mod(ch.stats.WIS)+lightPenalty(); if(s < 11+WORLD.pos.z){ feared=true; logLine("😱 Fear grips you (save "+s+") — your strike falters.","bad"); } }
   let dealt=0;
-  if(!feared){ const atk=d20fate()+partyCombat(ch)+lightPenalty();
-    if(atk>=f.def){ const loc=hitLocation(); const dmg=Math.max(1, rollWeapon(ch)+loc[1]); dealt=dmg; dealToMonster(f,dmg); logLine("⚔️ You hit its "+loc[0]+" ("+atk+" vs Def "+f.def+") for <b>"+dmg+"</b>.","good"); }
+  if(!feared){ const t=monTile(f), sx=t.c-HERO_TILE[0], sy=t.r-HERO_TILE[1], SL=Math.hypot(sx,sy)||1;
+    ch.atkAnim={t0:performance.now(), dur:300, dx:sx/SL, dy:sy/SL};                          // hero lunges + swings
+    const atk=d20fate()+partyCombat(ch)+lightPenalty();
+    if(atk>=f.def){ const loc=hitLocation(); const dmg=Math.max(1, rollWeapon(ch)+loc[1]); dealt=dmg; dealToMonster(f,dmg);
+      f.hitFlash={t0:performance.now()+150};                                                 // enemy flashes as the blow lands
+      logLine("⚔️ You hit its "+loc[0]+" ("+atk+" vs Def "+f.def+") for <b>"+dmg+"</b>.","good"); }
     else logLine("⚔️ You miss ("+atk+" vs Def "+f.def+").",""); }
   f.woundedLastRound = dealt>0;
   if(monHp(f)<=0){ logLine("☠️ The "+f.monster.name+" is slain!","good"); endCombatRemove(f, f.gold); return; }
   if(f.reaction.type==="flee"){ logLine("🌫️ The "+f.monster.name+" breaks away into the dark.",""); f.resolved=true; WORLD.selection=null; renderAll(); return; }
-  monsterStrike(f);
+  monsterStrike(f, 340);                                                                     // its counter lands after your swing
   if(ch.hp<=0){ renderAll(); renderCombatPanel(f); return; }
   if(hasAbil(f,"Regenerate") && monHp(f)>0 && monHp(f)<f.mhpMax){ const heal=Math.min(2,f.mhpMax-monHp(f)); for(let i=0;i<f.mhp.length;i++){ if(f.mhp[i]>0){ f.mhp[i]+=heal; break; } } logLine("🩸 The "+f.monster.name+" knits its wounds (+"+heal+").",""); }
   afterRound(f);
@@ -1041,7 +1083,7 @@ function tickAnim(){
     frameIndex = Math.floor(now/130);
     if(atlasReady) paintRoom();
     stepMove(now);
-  } else if(now - lastPaint >= 33){            // ~30fps idle: torch flicker, dust settle, sprite bob
+  } else if(animActive() || DUST.length || now - lastPaint >= 33){   // full fps during combat FX, else ~30fps
     lastPaint = now; frameIndex = Math.floor(now/160);
     if(atlasReady && ROOMLAYOUT) paintRoom();
   }

@@ -110,6 +110,10 @@ break off and flee — then you act:
 - **Sneak past / Parley / Holy Water / Disengage / Drink Potion** — the same
   many-paths-to-resolve philosophy, now available every round.
 
+Fights are **animated on the map**: your hero lunges in and swings its equipped
+weapon on an attack, the struck enemy flashes white and knocks back, and when a
+blow lands on *you* the hero snaps to its hit-frame with a red flinch and recoil.
+
 Monsters carry **abilities**: *Pack* (several HP pools + deadlier in numbers),
 *Large* (extra damage on solid hits), *Regenerate* (heals between rounds),
 *Fear* (steel yourself or lose your strike), *Poison* (venom that gnaws each
