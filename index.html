@@ -552,23 +552,34 @@ function resolveMethod(method){
   const moving = outcome.effects && (outcome.effects.open||outcome.effects.descend||outcome.effects.ascend);
   if(!moving){ renderAll(); if(sel.kind==="feature" && sel.f.resolved){ WORLD.selection=null; renderPanel(); renderRoom(); } }
 }
-// Movement: play the hero's walk animation striding out of this room and into
-// the next. Reduced-motion users get an instant hop.
-function move(dir){ if(MOVE) return; if(REDUCED){ instantMove(dir); return; } WORLD.selection=null; renderPanel(); MOVE = { dir:dir, phase:"out", t0: performance.now() }; }
+// Movement: a camera slide from this room to the next while the hero walks in
+// place and kicks up dust. Reduced-motion users get an instant hop.
+function move(dir){
+  if(MOVE) return;
+  if(REDUCED){ instantMove(dir); return; }
+  WORLD.selection = null; renderPanel();
+  if(!ROOMLAYOUT) layoutRoom();
+  const pos = WORLD.pos, d = DIRS[dir];
+  const toPos = {x:pos.x+d.dx, y:pos.y+d.dy, z:pos.z};
+  const toLayout = computeLayout(genRoom(toPos.x,toPos.y,toPos.z), toPos);
+  DUST = []; lastPuff = 0;
+  MOVE = { dir:dir, t0: performance.now(), fromLayout: ROOMLAYOUT, toLayout: toLayout, toPos: toPos };
+}
 function instantMove(dir){ const p = WORLD.pos, d=DIRS[dir]; WORLD.pos = {x:p.x+d.dx, y:p.y+d.dy, z:p.z}; WORLD.selection = null; visit(); logLine("You travel <b>"+dir+"</b> into the <b>"+curRoom().name+"</b>."); renderAll(); }
 function stepMove(now){
-  const p = (now - MOVE.t0) / MOVE_DUR;
-  if(p < 1) return;
-  if(MOVE.phase === "out"){
-    const pos = WORLD.pos, d = DIRS[MOVE.dir];
-    WORLD.pos = {x:pos.x+d.dx, y:pos.y+d.dy, z:pos.z};
-    visit(); layoutRoom(); renderMeta(); renderMinimap();
-    MOVE.phase = "in"; MOVE.t0 = now;
-  } else {
-    const dir = MOVE.dir; MOVE = null;
-    logLine("You travel <b>"+dir+"</b> into the <b>"+curRoom().name+"</b>.");
-    renderAll();
+  if(now - lastPuff > 130){                                     // kick up footstep dust
+    lastPuff = now; const v = DIRS[MOVE.dir];
+    for(let i=0;i<2;i++){
+      DUST.push({ x: HERO_CX + (Math.random()*8-4), y: HERO_BY - 1,
+        vx: -v.dx*16 + (Math.random()*14-7), vy: -v.dy*16 + (Math.random()*8-6),
+        born: now, life: 460, sz: 1 + Math.floor(Math.random()*2) });
+    }
   }
+  if(now - MOVE.t0 < SLIDE_DUR) return;
+  WORLD.pos = MOVE.toPos; WORLD.selection = null; visit(); DUST = [];
+  const dir = MOVE.dir; MOVE = null;
+  logLine("You travel <b>"+dir+"</b> into the <b>"+curRoom().name+"</b>.");
+  renderAll();
 }
 function changeDepth(delta){ WORLD.pos = {x:WORLD.pos.x, y:WORLD.pos.y, z:Math.max(0, WORLD.pos.z+delta)}; visit(); const rm=curRoom(); logLine(delta>0?("You descend to <b>Depth "+(WORLD.pos.z+1)+"</b> — the "+rm.name+"."):("You climb to <b>Depth "+(WORLD.pos.z+1)+"</b> — the "+rm.name+"."), "gold"); renderAll(); }
 function searchRoom(){
@@ -598,9 +609,11 @@ const SLOTS = [[5,2],[8,3],[9,6],[8,9],[5,9],[2,9],[1,6],[2,3],[7,4],[3,7]];
 const canvas = $("#room"), ctx = canvas.getContext("2d");
 ctx.imageSmoothingEnabled = false;
 let ROOMLAYOUT = null;
-let MOVE = null;                                   // active room-to-room walk transition
-const MOVE_DUR = 720, WALK_STEP = 108;             // ms per phase, px the hero strides
+let MOVE = null;                                   // active room-to-room camera slide
+const SLIDE_DUR = 1750;                            // ms for the full slide (calm & readable)
 const HERO_CX = HERO_TILE[0]*TS + TS/2, HERO_BY = HERO_TILE[1]*TS + TS;
+let DUST = [];                                     // footstep dust particles
+let lastPuff = 0;
 
 function renderAll(){ renderSheet(); renderRoom(); renderPanel(); renderLog(); renderMinimap(); renderMeta(); }
 function renderMeta(){ const rm = curRoom(); $("#roomTitle").textContent = rm.name; $("#depthTag").textContent = "Depth "+(WORLD.pos.z+1); $("#mmDepth").textContent = (WORLD.pos.z+1); $("#searchBtn").disabled = rm.searched; }
@@ -632,33 +645,32 @@ function renderSheet(){
 
 /* ---- room canvas ---- */
 function floorVariant(id, c, r){ return "floor_"+(1 + (xmur3(id+":"+c+","+r)() % 8)); }
-function layoutRoom(){
-  const rm = curRoom(), p = WORLD.pos;
+const DOOR_TILES = { N:[[5,0],[6,0],[5,1],[6,1]], S:[[5,11],[6,11],[5,10],[6,10]], W:[[0,5],[0,6],[1,5],[1,6]], E:[[11,5],[11,6],[10,5],[10,6]] };
+const DOOR_DRAW = { N:[80,0], S:[80,160], W:[0,80], E:[160,80] };
+// Pure: build a paintable layout for any room+position (no globals touched).
+function computeLayout(rm, p){
   const floors = [];
   for(let c=1;c<COLS-1;c++){ for(let rr=1;rr<ROWS-1;rr++){ floors.push([c,rr, floorVariant(rm.id,c,rr)]); } }
-  // doors: 2-tile openings centred on each wall
   const doors = {};
-  const doorTiles = { N:[[5,0],[6,0],[5,1],[6,1]], S:[[5,11],[6,11],[5,10],[6,10]], W:[[0,5],[0,6],[1,5],[1,6]], E:[[11,5],[11,6],[10,5],[10,6]] };
-  const doorDraw = { N:[80,0], S:[80,160], W:[0,80], E:[160,80] };
   ["N","E","S","W"].forEach(function(dir){
     const info = rm.exits[dir];
     const hiddenSecret = info.exists && info.hidden && !revealedSecret(p.x,p.y,p.z,dir) && !rm.searched;
     const shown = info.exists && !hiddenSecret;
     const opened = info.exists && (info.type==="passage" || isEdgeOpen(p.x,p.y,p.z,dir));
-    doors[dir] = { info:info, shown:shown, opened:opened, tiles:doorTiles[dir], draw:doorDraw[dir] };
+    doors[dir] = { info:info, shown:shown, opened:opened, tiles:DOOR_TILES[dir], draw:DOOR_DRAW[dir] };
   });
-  // features on ring slots
   const live = rm.features.filter(function(f){return !f.resolved;});
-  const feats = live.map(function(f,i){ const s = SLOTS[i%SLOTS.length]; return {f:f, c:s[0], r:s[1]}; });
-  // click map
+  const feats = live.map(function(f,i){ const s = SLOTS[i%SLOTS.length];
+    const hiddenTrap = (f.type==="trap"||f.type==="trapdoor") && !f.known && !rm.searched;
+    return {f:f, c:s[0], r:s[1], hiddenTrap:hiddenTrap}; });
+  return { rm:rm, floors:floors, doors:doors, feats:feats };
+}
+function layoutRoom(){
+  const L = computeLayout(curRoom(), WORLD.pos);
   const click = {};
-  ["N","E","S","W"].forEach(function(dir){ const d=doors[dir]; if(d.shown){ d.tiles.forEach(function(t){ click[t[0]+","+t[1]]={kind:"exit",dir:dir}; }); } });
-  feats.forEach(function(ft){ const rm2 = curRoom(); const hiddenTrap = (ft.f.type==="trap"||ft.f.type==="trapdoor") && !ft.f.known && !rm2.searched;
-    click[ft.c+","+ft.r] = {kind:"feature", fid:ft.f.id};
-    click[ft.c+","+(ft.r-1)] = {kind:"feature", fid:ft.f.id}; // tall sprites: allow clicking the body above
-    ft.hiddenTrap = hiddenTrap;
-  });
-  ROOMLAYOUT = { rm:rm, floors:floors, doors:doors, feats:feats, click:click };
+  ["N","E","S","W"].forEach(function(dir){ const d=L.doors[dir]; if(d.shown){ d.tiles.forEach(function(t){ click[t[0]+","+t[1]]={kind:"exit",dir:dir}; }); } });
+  L.feats.forEach(function(ft){ click[ft.c+","+ft.r] = {kind:"feature", fid:ft.f.id}; click[ft.c+","+(ft.r-1)] = {kind:"feature", fid:ft.f.id}; });
+  L.click = click; ROOMLAYOUT = L;
 }
 function drawFrame(name, dx, dy){ const f = FRAMES[name]; if(!f) return; ctx.drawImage(atlasImg, f[0],f[1],f[2],f[3], dx,dy, f[2],f[3]); }
 function drawCenteredBottom(name, cx, by, scale){ const f = FRAMES[name]; if(!f) return; scale=scale||1; const w=f[2]*scale, h=f[3]*scale; ctx.drawImage(atlasImg, f[0],f[1],f[2],f[3], Math.round(cx-w/2), Math.round(by-h), w,h); }
@@ -667,48 +679,56 @@ function drawCenteredBottomFlip(name, cx, by, flip){ const f = FRAMES[name]; if(
   else { ctx.drawImage(atlasImg, f[0],f[1],w,h, dx,dy, w,h); } }
 // small props drawn larger so they read clearly on the tile grid
 const FEATURE_SCALE = { treasure:2, chasm:1, trapdoor:1, ascent:1 };
-function paintRoom(){
-  if(!atlasReady || !ROOMLAYOUT) return;
-  const L = ROOMLAYOUT; ctx.clearRect(0,0,canvas.width,canvas.height);
-  ctx.fillStyle = "#0b0906"; ctx.fillRect(0,0,canvas.width,canvas.height);
-  // floor
-  L.floors.forEach(function(t){ drawFrame(t[2], t[0]*TS, t[1]*TS); });
-  // wall ring
-  for(let c=0;c<COLS;c++){ drawFrame(c===0?"wall_top_left":c===COLS-1?"wall_top_right":"wall_top_mid", c*TS, 0); drawFrame(c===0?"wall_top_left":c===COLS-1?"wall_top_right":"wall_top_mid", c*TS, (ROWS-1)*TS); }
-  for(let rr=1;rr<ROWS-1;rr++){ drawFrame("wall_left", 0, rr*TS); drawFrame("wall_right", (COLS-1)*TS, rr*TS); }
-  // selection highlight
-  const sel = WORLD.selection;
-  // doors
+// Paint a room layout at a pixel offset (offsets let two rooms slide past each other).
+function drawLayoutAt(L, ox, oy, active){
+  L.floors.forEach(function(t){ drawFrame(t[2], t[0]*TS+ox, t[1]*TS+oy); });
+  for(let c=0;c<COLS;c++){ const top=c===0?"wall_top_left":c===COLS-1?"wall_top_right":"wall_top_mid"; drawFrame(top, c*TS+ox, oy); drawFrame(top, c*TS+ox, (ROWS-1)*TS+oy); }
+  for(let rr=1;rr<ROWS-1;rr++){ drawFrame("wall_left", ox, rr*TS+oy); drawFrame("wall_right", (COLS-1)*TS+ox, rr*TS+oy); }
+  const sel = active ? WORLD.selection : null;
   ["N","E","S","W"].forEach(function(dir){
     const d = L.doors[dir]; if(!d.shown) return;
-    const dx = d.draw[0], dy = d.draw[1];
+    const dx = d.draw[0]+ox, dy = d.draw[1]+oy;
     if(d.opened){
-      // carve an opening: floor through the wall gap + open leaf
-      d.tiles.forEach(function(t){ if(t[1]===0||t[1]===ROWS-1||t[0]===0||t[0]===COLS-1) drawFrame(floorVariant(L.rm.id,t[0],t[1]), t[0]*TS, t[1]*TS); });
+      d.tiles.forEach(function(t){ if(t[1]===0||t[1]===ROWS-1||t[0]===0||t[0]===COLS-1) drawFrame(floorVariant(L.rm.id,t[0],t[1]), t[0]*TS+ox, t[1]*TS+oy); });
       drawFrame("doors_leaf_open", dx, dy);
     } else {
       drawFrame("doors_leaf_closed", dx, dy);
-      // type keystone (crisp pixel badge)
       const badge = {locked:"#d8a94a", warded:"#8a5cff", rubble:"#8a8078"}[d.info.type];
       if(badge){ ctx.fillStyle = badge; ctx.fillRect(dx+14, dy+13, 4, 6); ctx.fillStyle="#20160a"; ctx.fillRect(dx+15, dy+15, 2, 2); }
     }
     if(sel && sel.kind==="exit" && sel.dir===dir){ ctx.strokeStyle="#f2c94c"; ctx.lineWidth=1; ctx.strokeRect(dx+0.5, dy+0.5, 31, 31); }
   });
-  // features
   L.feats.forEach(function(ft){
-    const cx = ft.c*TS + TS/2, by = ft.r*TS + TS;
-    if(ft.hiddenTrap){ ctx.fillStyle="rgba(80,70,55,.7)"; ctx.fillRect(ft.c*TS+6, ft.r*TS+7, 4,2); ctx.fillRect(ft.c*TS+8, ft.r*TS+9, 3,2); }
+    const cx = ft.c*TS + TS/2 + ox, by = ft.r*TS + TS + oy;
+    if(ft.hiddenTrap){ ctx.fillStyle="rgba(80,70,55,.7)"; ctx.fillRect(ft.c*TS+6+ox, ft.r*TS+7+oy, 4,2); ctx.fillRect(ft.c*TS+8+ox, ft.r*TS+9+oy, 3,2); }
     else { drawCenteredBottom(curFrame(featureSprite(ft.f)), cx, by, FEATURE_SCALE[ft.f.type]||1); }
-    if(sel && sel.kind==="feature" && sel.fid===ft.f.id){ ctx.strokeStyle="#f2c94c"; ctx.lineWidth=1; ctx.strokeRect(ft.c*TS+0.5, ft.r*TS+0.5, TS-1, TS-1); }
+    if(sel && sel.kind==="feature" && sel.fid===ft.f.id){ ctx.strokeStyle="#f2c94c"; ctx.lineWidth=1; ctx.strokeRect(ft.c*TS+0.5+ox, ft.r*TS+0.5+oy, TS-1, TS-1); }
   });
-  // hero
-  const hero = WORLD.hero;
+}
+function easeInOut(p){ return p<0.5 ? 2*p*p : 1-Math.pow(-2*p+2,2)/2; }
+function drawDust(now){
+  DUST = DUST.filter(function(pt){ return now-pt.born < pt.life; });
+  DUST.forEach(function(pt){ const age=now-pt.born, t=age/1000, a=1-age/pt.life;
+    const x = pt.x + pt.vx*t, y = pt.y + pt.vy*t + 22*t*t;      // drift back + gently settle
+    ctx.fillStyle = "rgba(206,192,160,"+(a*0.65).toFixed(3)+")"; ctx.fillRect(Math.round(x), Math.round(y), pt.sz, pt.sz);
+  });
+}
+function paintRoom(){
+  if(!atlasReady) return;
+  const now = performance.now(), hero = WORLD.hero;
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle = "#0b0906"; ctx.fillRect(0,0,canvas.width,canvas.height);
   if(MOVE){
-    const v = DIRS[MOVE.dir];
-    const p = Math.max(0, Math.min(1, (performance.now()-MOVE.t0)/MOVE_DUR));
-    const dist = MOVE.phase==="out" ? WALK_STEP*p : -WALK_STEP*(1-p);
-    drawCenteredBottomFlip(curFrame(hero.spriteRun), HERO_CX + v.dx*dist, HERO_BY + v.dy*dist, v.dx < 0);
+    const v = DIRS[MOVE.dir], S = canvas.width;
+    const p = easeInOut(Math.max(0, Math.min(1, (now-MOVE.t0)/SLIDE_DUR)));
+    const ox = -v.dx*p*S, oy = -v.dy*p*S;                       // camera pans toward the new room
+    drawLayoutAt(MOVE.fromLayout, ox, oy, false);
+    drawLayoutAt(MOVE.toLayout, ox + v.dx*S, oy + v.dy*S, false);
+    drawDust(now);
+    drawCenteredBottomFlip(curFrame(hero.spriteRun), HERO_CX, HERO_BY, v.dx < 0);   // hero walks in place, camera follows
   } else {
+    if(!ROOMLAYOUT) return;
+    drawLayoutAt(ROOMLAYOUT, 0, 0, true);
     drawCenteredBottom(curFrame(hero.sprite), HERO_CX, HERO_BY);
   }
 }
@@ -770,9 +790,9 @@ function renderMinimap(){
 let lastFi = -1;
 function tickAnim(){
   const now = performance.now();
-  if(MOVE){                                    // smooth repaint + brisk stride while walking
+  if(MOVE){                                    // smooth repaint + brisk stride while sliding
     frameIndex = Math.floor(now/130);
-    if(atlasReady && ROOMLAYOUT) paintRoom();
+    if(atlasReady) paintRoom();
     stepMove(now);
   } else {                                     // idle: throttle to the sprite frame rate
     const fi = Math.floor(now/160);
