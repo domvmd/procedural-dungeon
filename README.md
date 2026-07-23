@@ -1,11 +1,16 @@
 # ⛧ Procedural Dungeon
 
-A **seed-deterministic dungeon crawler** in a single, dependency-free HTML file.
-Each room has up to four exits (N / E / S / W) and is populated with obstacles
-and encounters — **every one of which can be resolved through your character's
-stats, skills, inventory, weapons, or allies.** Walk through an exit and the
-adjacent room generates on the fly, building an explorable multi-room dungeon
-that descends through deeper, deadlier levels.
+A **seed-deterministic dungeon crawler** in a single, dependency-free HTML file,
+rendered with real **pixel-art** sprites on a crisp `image-rendering: pixelated`
+canvas. Each room has up to four exits (N / E / S / W) and is populated with
+obstacles and encounters — **every one of which can be resolved through your
+character's stats, skills, inventory, weapons, or allies.** Walk through an exit
+and the adjacent room generates on the fly, building an explorable multi-room
+dungeon that descends through deeper, deadlier levels.
+
+Animated sprites (idle-looping heroes, monsters, coins, spike traps), tiled
+stone floors and walls, heart-pip HP, and weapon-sprite icons all come from the
+embedded **DungeonTileset II** atlas — see [Credits](#credits).
 
 > **Play it:** just open `index.html` in any modern browser. No build, no server,
 > no dependencies.
@@ -80,21 +85,40 @@ sidestep a roll entirely (a key beats any lock; rope makes any chasm trivial).
 
 ## Under the hood
 
-Pure vanilla JS + inline SVG, organized into clear sections inside `index.html`:
+Pure vanilla JS, no dependencies and no build step, organized into clear
+sections inside `index.html`:
 
+- **SPRITES** — the DungeonTileset II atlas embedded as a base64 data URI plus a
+  `{name: [x, y, w, h]}` frame table; `pxIcon()` slices static UI icons via CSS
+  `background-position`, and the canvas slices animated sprites via `drawImage`
 - **RNG** — `xmur3` string hash + `mulberry32` PRNG for deterministic generation
 - **CHARACTER** — stats, skills, modifiers, inventory helpers
 - **ENCOUNTERS** — data-driven definitions; each obstacle lists its resolution methods
 - **DUNGEON** — on-demand room generation with **reciprocal exits** (the wall
   between two cells is derived from a shared canonical key, so neighbours always agree)
-- **RENDER** — top-down SVG room, character sheet, mini-map, event log
+- **RENDER** — a 12×12 tile pixel-art canvas (floors, walls, doors, sprites) with
+  a `requestAnimationFrame` idle-animation loop, plus the character sheet,
+  mini-map, and event log
+
+Everything is embedded — the atlas is a ~39 KB PNG, so the whole game is one
+self-contained ~120 KB file that runs from `file://` with no assets to load.
+`prefers-reduced-motion` is respected (the animation loop is skipped).
 
 ## Ideas to extend
 
 - Persist progress to `localStorage`; add a shareable URL that encodes the seed
 - Boss rooms / a descending objective (retrieve an artifact from Depth N)
 - More encounter types (curses, illusions, merchants, environmental darkness needing a lit **Torch**)
-- Sound, keyboard movement, and animated dice rolls
+- Walk/run animations when moving between rooms; animated dice rolls; sound
+
+## Credits
+
+Pixel art: **[DungeonTileset II](https://0x72.itch.io/dungeontileset-ii)** by
+**0x72**, released under **[CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/)**
+(public domain). The tileset atlas is embedded in `index.html`. No attribution is
+required under CC0 — it's included here with thanks.
+
+Game code © 2026 domvmd, MIT licensed (see `LICENSE`).
 
 ---
 
