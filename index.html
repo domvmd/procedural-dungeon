@@ -272,7 +272,7 @@ function makeHero(seedStr){
   const kit = kits[Math.floor(r()*kits.length)];
   const maxHp = 20 + con*3 + Math.floor(r()*8);
   return {
-    name: kit.name+" of the Deep", cls: kit.name, sprite: kit.sprite, level: 3, prof: 2,
+    name: kit.name+" of the Deep", cls: kit.name, sprite: kit.sprite, spriteRun: kit.sprite.replace("_idle_","_run_"), level: 3, prof: 2,
     stats:stats, maxHp:maxHp, hp: maxHp, ac: 12 + mod(stats.DEX),
     proficient: new Set(kit.prof),
     inventory: kit.items.map(function(x){return {name:x[0],tag:x[1],qty:x[2]};}),
@@ -521,12 +521,13 @@ function revealedSecret(x,y,z,dir){ return WORLD.openEdges.has("seen:"+edgeKey(x
 function logLine(html, cls){ WORLD.logLines.unshift({html:html, cls:cls||""}); if(WORLD.logLines.length>60) WORLD.logLines.pop(); }
 
 function selectExit(dir){
+  if(MOVE) return;
   const p = WORLD.pos; const info = curRoom().exits[dir]; if(!info || !info.exists) return;
   if(info.hidden && !revealedSecret(p.x,p.y,p.z,dir) && !curRoom().searched) return;
   if(info.type==="passage" || isEdgeOpen(p.x,p.y,p.z,dir)){ move(dir); return; }
   WORLD.selection = {kind:"exit", dir:dir, info:info}; renderPanel(); renderRoom();
 }
-function selectFeature(fid){ const f = curRoom().features.find(function(f){return f.id===fid;}); if(!f) return; WORLD.selection = {kind:"feature", fid:fid, f:f}; renderPanel(); renderRoom(); }
+function selectFeature(fid){ if(MOVE) return; const f = curRoom().features.find(function(f){return f.id===fid;}); if(!f) return; WORLD.selection = {kind:"feature", fid:fid, f:f}; renderPanel(); renderRoom(); }
 
 function applyEffects(fx, sourceIsExit, dir, feature){
   const ch = WORLD.hero;
@@ -551,7 +552,24 @@ function resolveMethod(method){
   const moving = outcome.effects && (outcome.effects.open||outcome.effects.descend||outcome.effects.ascend);
   if(!moving){ renderAll(); if(sel.kind==="feature" && sel.f.resolved){ WORLD.selection=null; renderPanel(); renderRoom(); } }
 }
-function move(dir){ const p = WORLD.pos, d=DIRS[dir]; WORLD.pos = {x:p.x+d.dx, y:p.y+d.dy, z:p.z}; WORLD.selection = null; visit(); logLine("You travel <b>"+dir+"</b> into the <b>"+curRoom().name+"</b>."); renderAll(); }
+// Movement: play the hero's walk animation striding out of this room and into
+// the next. Reduced-motion users get an instant hop.
+function move(dir){ if(MOVE) return; if(REDUCED){ instantMove(dir); return; } WORLD.selection=null; renderPanel(); MOVE = { dir:dir, phase:"out", t0: performance.now() }; }
+function instantMove(dir){ const p = WORLD.pos, d=DIRS[dir]; WORLD.pos = {x:p.x+d.dx, y:p.y+d.dy, z:p.z}; WORLD.selection = null; visit(); logLine("You travel <b>"+dir+"</b> into the <b>"+curRoom().name+"</b>."); renderAll(); }
+function stepMove(now){
+  const p = (now - MOVE.t0) / MOVE_DUR;
+  if(p < 1) return;
+  if(MOVE.phase === "out"){
+    const pos = WORLD.pos, d = DIRS[MOVE.dir];
+    WORLD.pos = {x:pos.x+d.dx, y:pos.y+d.dy, z:pos.z};
+    visit(); layoutRoom(); renderMeta(); renderMinimap();
+    MOVE.phase = "in"; MOVE.t0 = now;
+  } else {
+    const dir = MOVE.dir; MOVE = null;
+    logLine("You travel <b>"+dir+"</b> into the <b>"+curRoom().name+"</b>.");
+    renderAll();
+  }
+}
 function changeDepth(delta){ WORLD.pos = {x:WORLD.pos.x, y:WORLD.pos.y, z:Math.max(0, WORLD.pos.z+delta)}; visit(); const rm=curRoom(); logLine(delta>0?("You descend to <b>Depth "+(WORLD.pos.z+1)+"</b> — the "+rm.name+"."):("You climb to <b>Depth "+(WORLD.pos.z+1)+"</b> — the "+rm.name+"."), "gold"); renderAll(); }
 function searchRoom(){
   const ch = WORLD.hero, rm = curRoom(), p = WORLD.pos; const dc = difficultyAt(p.z,p.x,p.y);
@@ -580,6 +598,9 @@ const SLOTS = [[5,2],[8,3],[9,6],[8,9],[5,9],[2,9],[1,6],[2,3],[7,4],[3,7]];
 const canvas = $("#room"), ctx = canvas.getContext("2d");
 ctx.imageSmoothingEnabled = false;
 let ROOMLAYOUT = null;
+let MOVE = null;                                   // active room-to-room walk transition
+const MOVE_DUR = 300, WALK_STEP = 108;             // ms per phase, px the hero strides
+const HERO_CX = HERO_TILE[0]*TS + TS/2, HERO_BY = HERO_TILE[1]*TS + TS;
 
 function renderAll(){ renderSheet(); renderRoom(); renderPanel(); renderLog(); renderMinimap(); renderMeta(); }
 function renderMeta(){ const rm = curRoom(); $("#roomTitle").textContent = rm.name; $("#depthTag").textContent = "Depth "+(WORLD.pos.z+1); $("#mmDepth").textContent = (WORLD.pos.z+1); $("#searchBtn").disabled = rm.searched; }
@@ -641,6 +662,9 @@ function layoutRoom(){
 }
 function drawFrame(name, dx, dy){ const f = FRAMES[name]; if(!f) return; ctx.drawImage(atlasImg, f[0],f[1],f[2],f[3], dx,dy, f[2],f[3]); }
 function drawCenteredBottom(name, cx, by, scale){ const f = FRAMES[name]; if(!f) return; scale=scale||1; const w=f[2]*scale, h=f[3]*scale; ctx.drawImage(atlasImg, f[0],f[1],f[2],f[3], Math.round(cx-w/2), Math.round(by-h), w,h); }
+function drawCenteredBottomFlip(name, cx, by, flip){ const f = FRAMES[name]; if(!f) return; const w=f[2], h=f[3], dx=Math.round(cx-w/2), dy=Math.round(by-h);
+  if(flip){ ctx.save(); ctx.translate(dx+w, dy); ctx.scale(-1,1); ctx.drawImage(atlasImg, f[0],f[1],w,h, 0,0, w,h); ctx.restore(); }
+  else { ctx.drawImage(atlasImg, f[0],f[1],w,h, dx,dy, w,h); } }
 // small props drawn larger so they read clearly on the tile grid
 const FEATURE_SCALE = { treasure:2, chasm:1, trapdoor:1, ascent:1 };
 function paintRoom(){
@@ -678,7 +702,15 @@ function paintRoom(){
     if(sel && sel.kind==="feature" && sel.fid===ft.f.id){ ctx.strokeStyle="#f2c94c"; ctx.lineWidth=1; ctx.strokeRect(ft.c*TS+0.5, ft.r*TS+0.5, TS-1, TS-1); }
   });
   // hero
-  drawCenteredBottom(curFrame(WORLD.hero.sprite), HERO_TILE[0]*TS + TS/2, HERO_TILE[1]*TS + TS);
+  const hero = WORLD.hero;
+  if(MOVE){
+    const v = DIRS[MOVE.dir];
+    const p = Math.max(0, Math.min(1, (performance.now()-MOVE.t0)/MOVE_DUR));
+    const dist = MOVE.phase==="out" ? WALK_STEP*p : -WALK_STEP*(1-p);
+    drawCenteredBottomFlip(curFrame(hero.spriteRun), HERO_CX + v.dx*dist, HERO_BY + v.dy*dist, v.dx < 0);
+  } else {
+    drawCenteredBottom(curFrame(hero.sprite), HERO_CX, HERO_BY);
+  }
 }
 function renderRoom(){
   layoutRoom();
@@ -736,7 +768,18 @@ function renderMinimap(){
 
 /* ---- animation loop ---- */
 let lastFi = -1;
-function tickAnim(){ const fi = Math.floor(performance.now()/160); if(fi!==lastFi){ lastFi=fi; frameIndex=fi; if(atlasReady && ROOMLAYOUT) paintRoom(); } requestAnimationFrame(tickAnim); }
+function tickAnim(){
+  const now = performance.now();
+  if(MOVE){                                    // smooth repaint + brisk stride while walking
+    frameIndex = Math.floor(now/90);
+    if(atlasReady && ROOMLAYOUT) paintRoom();
+    stepMove(now);
+  } else {                                     // idle: throttle to the sprite frame rate
+    const fi = Math.floor(now/160);
+    if(fi!==lastFi){ lastFi=fi; frameIndex=fi; if(atlasReady && ROOMLAYOUT) paintRoom(); }
+  }
+  requestAnimationFrame(tickAnim);
+}
 if(!REDUCED) requestAnimationFrame(tickAnim);
 
 /* =========================================================================
