@@ -98,6 +98,32 @@ sidestep a roll entirely (a key beats any lock; rope makes any chasm trivial).
   monster's options. Monsters visibly **lunge** when they strike you and burst
   into dust when they fall.
 
+## Combat
+
+Fights play out over **rounds**, not a single roll. Each round the monster takes
+a **reaction** — ready an attack, or (when wounded) enrage for a harder hit, or
+break off and flee — then you act:
+
+- **Attack** — roll to hit versus the monster's defence, then roll weapon damage
+  plus a **hit-location** modifier (a blow to the head lands harder than one to
+  the legs). Whittle its HP down across rounds.
+- **Sneak past / Parley / Holy Water / Disengage / Drink Potion** — the same
+  many-paths-to-resolve philosophy, now available every round.
+
+Monsters carry **abilities**: *Pack* (several HP pools + deadlier in numbers),
+*Large* (extra damage on solid hits), *Regenerate* (heals between rounds),
+*Fear* (steel yourself or lose your strike), *Poison* (venom that gnaws each
+round). Defeating a foe drops loot (and sometimes a torch); it stays barring the
+exits until it's slain or evaded.
+
+### Fate & Life
+
+- **🍀 Fate** — arm it before a roll to gain **advantage** (roll twice, keep the
+  better), spending one point. Great for the check you can't afford to miss.
+- **✚ Life** — when a blow would kill you, a Life is spent automatically to
+  **cheat death**: you rise at full HP, poison cleared. Run out of Life and it's
+  permadeath — roll a New Hero.
+
 ## Controls
 
 - **New Dungeon** — generate a world from the seed box (blank = random seed)

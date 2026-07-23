@@ -284,8 +284,16 @@ function makeHero(seedStr){
     inventory: kit.items.map(function(x){return {name:x[0],tag:x[1],qty:x[2]};}),
     weapons: kit.weapons.map(function(x){return {name:x[0],stat:x[1],dmg:x[2]};}),
     allies: kit.allies.map(function(x){return {name:x[0],type:x[1],bonus:x[2]};}),
-    gold: 0, buffs: [], torchLit: false, torchFuel: 0, lowWarned: false
+    gold: 0, buffs: [], torchLit: false, torchFuel: 0, lowWarned: false,
+    fate: 3, life: 3, poison: 0
   };
+}
+let FATE_ARMED = false;                             // spend Fate for advantage on the next roll
+// A d20 that rolls with advantage (best of two) when Fate is armed, spending a point.
+function d20fate(){
+  const ch = WORLD.hero;
+  if(FATE_ARMED && ch && ch.fate>0){ ch.fate--; FATE_ARMED=false; const a=d20(), b=d20(); logLine("🍀 Fate spent — advantage ("+a+"/"+b+").","gold"); return Math.max(a,b); }
+  return d20();
 }
 // Penalty to every check/attack when the light is failing: -3 in the dark, -1 when low.
 function lightPenalty(){ const ch = WORLD.hero; if(!ch) return 0; if(!ch.torchLit) return -3; if(ch.torchFuel < TORCH_DURATION*0.18) return -1; return 0; }
@@ -341,16 +349,18 @@ function exitMethods(edge){
   }
 }
 
+// Combat stats: hp (array = a pack of pools), def (to-hit target for the hero),
+// atk (monster's to-hit bonus vs hero AC), dmg (damage bonus), abilities.
 const MONSTERS = [
-  {name:"Goblin Skirmishers", sprite:"goblin_idle_anim", undead:false},
-  {name:"Orc Warrior", sprite:"orc_warrior_idle_anim", undead:false},
-  {name:"Masked Orc", sprite:"masked_orc_idle_anim", undead:false},
-  {name:"Cave Ogre", sprite:"ogre_idle_anim", undead:false},
-  {name:"Skeleton Warband", sprite:"skelet_idle_anim", undead:true},
-  {name:"Wraith Necromancer", sprite:"necromancer_anim", undead:true},
-  {name:"Chort Demon", sprite:"chort_idle_anim", undead:false},
-  {name:"Gelatinous Ooze", sprite:"swampy_anim", undead:false},
-  {name:"Great Demon", sprite:"big_demon_idle_anim", undead:false}
+  {name:"Goblin Skirmishers", sprite:"goblin_idle_anim", undead:false, hp:[3,2,2], def:11, atk:2, dmg:0, abilities:["Pack"]},
+  {name:"Orc Warrior", sprite:"orc_warrior_idle_anim", undead:false, hp:[11], def:13, atk:4, dmg:1, abilities:[]},
+  {name:"Masked Orc", sprite:"masked_orc_idle_anim", undead:false, hp:[9], def:13, atk:5, dmg:0, abilities:[]},
+  {name:"Cave Ogre", sprite:"ogre_idle_anim", undead:false, hp:[16], def:12, atk:5, dmg:2, abilities:["Large"]},
+  {name:"Skeleton Warband", sprite:"skelet_idle_anim", undead:true, hp:[4,3], def:12, atk:3, dmg:0, abilities:["Pack"]},
+  {name:"Wraith Necromancer", sprite:"necromancer_anim", undead:true, hp:[12], def:13, atk:4, dmg:1, abilities:["Regenerate"]},
+  {name:"Chort Demon", sprite:"chort_idle_anim", undead:false, hp:[12], def:14, atk:5, dmg:1, abilities:["Fear"]},
+  {name:"Gelatinous Ooze", sprite:"swampy_anim", undead:false, hp:[14], def:9, atk:3, dmg:0, abilities:["Poison"]},
+  {name:"Great Demon", sprite:"big_demon_idle_anim", undead:false, hp:[22], def:15, atk:6, dmg:2, abilities:["Fear","Large"]}
 ];
 // Sprite shown for a room feature (closed chests use a static frame).
 function featureSprite(f){
@@ -479,7 +489,7 @@ function featureEncounter(f){
   return {icon:"❓", title:"Curiosity", desc:"You examine it, but find nothing of note.", methods:[{label:"Move on", cls:"auto", detail:"", resolve:function(){return {ok:true, text:"Nothing here.", effects:{remove:true}};}}]};
 }
 function doCheck(ch, skill, dc){
-  const d = d20(); const m = skillMod(ch, skill); const pen = lightPenalty(); const total = d + m + pen;
+  const d = d20fate(); const m = skillMod(ch, skill); const pen = lightPenalty(); const total = d + m + pen;
   const crit = d===20, fumble = d===1; const success = crit ? true : fumble ? false : total>=dc;
   return { d:d, m:m, total:total, dc:dc, success:success,
     text:"d20 "+d+fmtMod(m)+(pen?" "+pen+" dark":"")+" = "+total+" vs DC "+dc+(crit?" — CRIT!":fumble?" — fumble!":"")+"." };
@@ -517,7 +527,9 @@ function genRoom(x,y,z){
       let type = pickWeighted(r, table);
       if(type==="trapdoor"){ if(hasTrapdoor) type="treasure"; else hasTrapdoor=true; }
       const gold = 10 + Math.floor(r()*40) + z*15;
-      if(type==="monster"){ const pool = z>=2 ? MONSTERS : MONSTERS.slice(0,7); push("monster",{monster:pool[Math.floor(r()*pool.length)], gold:gold+15, dc:baseDC+3, torches:(r()<0.3?1:0)}); }
+      if(type==="monster"){ const pool = z>=2 ? MONSTERS : MONSTERS.slice(0,7); const mon = pool[Math.floor(r()*pool.length)];
+        const mhp = mon.hp.map(function(h){ return h + Math.floor(z*0.5); });               // scale HP with depth
+        push("monster",{monster:mon, gold:gold+15, dc:baseDC+3, torches:(r()<0.3?1:0), mhp:mhp, def:mon.def+z, atk:mon.atk, dmg:mon.dmg}); }
       else if(type==="trapped_chest") push("trapped_chest",{gold:gold+20, trapped:true, trapKnown:false, torches:torchDrop()});
       else if(type==="locked_chest") push("locked_chest",{gold:gold+15, torches:torchDrop()});
       else if(type==="trap") push("trap",{known:false, dc:baseDC+1});
@@ -544,7 +556,7 @@ function newWorld(seed){
   lightTorch(WORLD.hero);
   visit(); logLine("You enter the dungeon <b>“"+WORLD.seed+"”</b> as a "+WORLD.hero.cls+", torch ablaze.", "gold"); renderAll();
 }
-function newHeroOnly(){ WORLD.hero = makeHero(WORLD.seed + "#" + (WORLD.logLines.length + Math.floor(WORLD.hero.hp))); lightTorch(WORLD.hero); logLine("A new champion answers the call: a <b>"+WORLD.hero.cls+"</b>.", "gold"); renderAll(); }
+function newHeroOnly(){ WORLD.hero = makeHero(WORLD.seed + "#" + (WORLD.logLines.length + Math.floor(WORLD.hero.hp))); lightTorch(WORLD.hero); FATE_ARMED=false; WORLD.selection=null; logLine("A new champion answers the call: a <b>"+WORLD.hero.cls+"</b>.", "gold"); renderAll(); }
 function curRoom(){ return genRoom(WORLD.pos.x, WORLD.pos.y, WORLD.pos.z); }
 function visit(){ WORLD.visited.add(WORLD.pos.x+","+WORLD.pos.y+","+WORLD.pos.z); genRoom(WORLD.pos.x,WORLD.pos.y,WORLD.pos.z); }
 function isEdgeOpen(x,y,z,dir){ return WORLD.openEdges.has(edgeKey(x,y,z,dir)); }
@@ -583,7 +595,7 @@ function applyEffects(fx, sourceIsExit, dir, feature){
   if(fx.remove && feature){ feature.resolved=true; }
   if(fx.descend){ WORLD.selection=null; changeDepth(+1); }
   if(fx.ascend){ WORLD.selection=null; changeDepth(-1); }
-  if(ch.hp<=0){ ch.hp=0; logLine("<b>You have fallen…</b> Rest or start a new hero.", "bad"); }
+  if(ch.hp<=0) heroDeathCheck();
 }
 function resolveMethod(method){
   const ch = WORLD.hero; if(ch.hp<=0) return; const sel = WORLD.selection;
@@ -706,6 +718,7 @@ function renderSheet(){
     "<div class='torchrow"+(ch.torchLit?"":" out")+"'><span class='tlabel'>"+(ch.torchLit?"🔥":"🕯️")+" Torch</span>"+
       "<div class='meter torch'><span id='torchFuel' style='width:"+(ch.torchLit?Math.round(100*Math.max(0,ch.torchFuel)/TORCH_DURATION):0)+"%'></span></div>"+
       "<span class='tspare'>×"+torchSpares(ch)+" spare</span></div>"+
+    "<div class='hint' style='text-align:left;margin:2px 0 4px'>🍀 Fate ×"+ch.fate+" &nbsp;·&nbsp; ✚ Life ×"+ch.life+(ch.poison>0?" &nbsp;·&nbsp; <span style='color:var(--bad)'>☠️ Poison "+ch.poison+"</span>":"")+"</div>"+
     "<div class='stats'>"+stats+"</div>"+ buffs +
     "<h3>Skills</h3><div class='skills'>"+skillChips+"</div>"+
     "<h3>Inventory</h3><div class='taglist'>"+items+"</div>"+
@@ -888,6 +901,87 @@ canvas.addEventListener("click", function(e){
   if(hit.kind==="exit") selectExit(hit.dir); else selectFeature(hit.fid);
 });
 
+/* ---- combat: round-based, monster reactions, hit locations, abilities ---- */
+const HITLOC = [null,["head",2],["back",2],["torso",1],["arms",0],["hands",0],["arm",0],["grip",0],["waist",0],["legs",-1],["feet",-1]];
+function hitLocation(){ return HITLOC[1+Math.floor(Math.random()*10)]; }
+function monHp(f){ return f.mhp.reduce(function(a,b){return a+b;},0); }
+function monMembers(f){ return f.mhp.filter(function(h){return h>0;}).length; }
+function hasAbil(f,a){ return f.monster.abilities.indexOf(a)>=0; }
+function dealToMonster(f, dmg){ let rem=dmg; for(let i=0;i<f.mhp.length && rem>0;i++){ if(f.mhp[i]>0){ const t=Math.min(f.mhp[i],rem); f.mhp[i]-=t; rem-=t; } } }
+function rollWeapon(ch){ let best={n:1,s:6}, bestAvg=3.5; for(const w of ch.weapons){ const m=/(\d+)d(\d+)/.exec(w.dmg); if(m){ const n=+m[1],s=+m[2],avg=n*(s+1)/2; if(avg>bestAvg){bestAvg=avg;best={n:n,s:s};} } } return roll(best.n,best.s); }
+// Life points let you cheat death; out of Life is permadeath.
+function heroDeathCheck(){ const ch=WORLD.hero; if(ch.hp>0) return false;
+  if(ch.life>0){ ch.life--; ch.hp=ch.maxHp; ch.poison=0; logLine("✨ A <b>Life</b> is spent — you cheat death and rise at full health! ("+ch.life+" left)","gold"); return false; }
+  ch.hp=0; logLine("<b>You have fallen for the last time…</b> Roll a New Hero.","bad"); return true; }
+function startCombat(f){ if(f.started) return; f.started=true; f.round=0; f.mhpMax=monHp(f); f.woundedLastRound=false; f.reaction=rollReaction(f); }
+function rollReaction(f){ const under=monHp(f)<=f.mhpMax/2; const r=1+Math.floor(Math.random()*10);
+  if(r===10 || (r===9 && f.woundedLastRound)) return {type:"flee", note:"It edges toward an escape."};
+  if(under && r<=2) return {type:"enrage", bonus:(r===1?4:2), note:"Cornered and enraged — it strikes harder!"};
+  return {type:"attack", note:"It readies an attack."}; }
+function monsterStrike(f){
+  const ch=WORLD.hero;
+  let atk = f.atk + (hasAbil(f,"Pack") ? (monMembers(f)-1) : 0);
+  if(f.reaction.type==="enrage") atk += f.reaction.bonus;
+  const total = d20()+atk; f.react={type:"lunge", t0:performance.now()};
+  if(total < ch.ac){ logLine("🛡️ The "+f.monster.name+" swings and misses ("+total+" vs AC "+ch.ac+").",""); return; }
+  const loc=hitLocation(), die=roll(1,6); let dmg=die+loc[1]+f.dmg; if(hasAbil(f,"Large") && die<=2) dmg+=2; dmg=Math.max(1,dmg);
+  ch.hp -= dmg; logLine("💥 The "+f.monster.name+" strikes your "+loc[0]+" for <b>"+dmg+"</b>.","bad");
+  if(hasAbil(f,"Poison") && die<=2){ ch.poison+=1; logLine("☠️ Venom! Poison rises to "+ch.poison+".","bad"); }
+  heroDeathCheck();
+}
+function endCombatRemove(f, loot){                    // slain / evaded / parleyed / turned
+  const lay = ROOMLAYOUT && ROOMLAYOUT.feats.find(function(x){return x.f.id===f.id;});
+  if(lay) spawnBurstAt(performance.now(), lay.c*TS+TS/2, lay.r*TS+TS-6);
+  applyEffects(Object.assign({remove:true}, loot!=null?{loot:loot}:{}), false, null, f);
+  WORLD.selection=null; renderAll();
+}
+function afterRound(f){ f.round=(f.round||0)+1; f.reaction=rollReaction(f); renderCombatPanel(f); renderSheet(); }
+function combatAction(f, action){
+  const ch=WORLD.hero; if(ch.hp<=0) return; startCombat(f);
+  if(action==="sneak"){ const r=doCheck(ch,"Stealth",f.dc); if(r.success){ logLine("🥷 "+r.text+" You slip past unseen.","good"); endCombatRemove(f,null); } else { logLine("🥷 "+r.text+" It spots you!","bad"); monsterStrike(f); afterRound(f); } return; }
+  if(action==="parley"){ if(f.monster.undead) return; const r=doCheck(ch,"Persuasion",f.dc+1); if(r.success){ logLine("🕊️ "+r.text+" It relents and lets you pass.","good"); endCombatRemove(f, Math.floor(f.gold/2)); } else { logLine("🕊️ "+r.text+" It answers with steel!","bad"); monsterStrike(f); afterRound(f); } return; }
+  if(action==="holy"){ if(!hasItem(ch,"holy_water")||!f.monster.undead) return; consume(ch,"holy_water"); logLine("⚱️ Blessed water sears the undead to ash!","good"); endCombatRemove(f, f.gold); return; }
+  if(action==="potion"){ if(!hasItem(ch,"potion_heal")) return; consume(ch,"potion_heal"); const before=ch.hp; ch.hp=Math.min(ch.maxHp,ch.hp+roll(2,4)+2); logLine("🧪 You quaff a potion (+"+(ch.hp-before)+" HP) — but drop your guard.","good"); monsterStrike(f); afterRound(f); return; }
+  if(action==="flee"){ logLine("🏃 You disengage — the "+f.monster.name+" lands a parting blow.",""); monsterStrike(f); if(ch.hp<=0){ renderAll(); renderCombatPanel(f); return; } WORLD.selection=null; renderAll(); return; }
+  // ATTACK — a full combat round
+  if(ch.poison>0){ ch.hp-=1; logLine("☠️ Poison gnaws you for 1.","bad"); if(heroDeathCheck()){ renderAll(); renderCombatPanel(f); return; } }
+  let feared=false;
+  if(hasAbil(f,"Fear")){ const s=d20fate()+mod(ch.stats.WIS)+lightPenalty(); if(s < 11+WORLD.pos.z){ feared=true; logLine("😱 Fear grips you (save "+s+") — your strike falters.","bad"); } }
+  let dealt=0;
+  if(!feared){ const atk=d20fate()+partyCombat(ch)+lightPenalty();
+    if(atk>=f.def){ const loc=hitLocation(); const dmg=Math.max(1, rollWeapon(ch)+loc[1]); dealt=dmg; dealToMonster(f,dmg); logLine("⚔️ You hit its "+loc[0]+" ("+atk+" vs Def "+f.def+") for <b>"+dmg+"</b>.","good"); }
+    else logLine("⚔️ You miss ("+atk+" vs Def "+f.def+").",""); }
+  f.woundedLastRound = dealt>0;
+  if(monHp(f)<=0){ logLine("☠️ The "+f.monster.name+" is slain!","good"); endCombatRemove(f, f.gold); return; }
+  if(f.reaction.type==="flee"){ logLine("🌫️ The "+f.monster.name+" breaks away into the dark.",""); f.resolved=true; WORLD.selection=null; renderAll(); return; }
+  monsterStrike(f);
+  if(ch.hp<=0){ renderAll(); renderCombatPanel(f); return; }
+  if(hasAbil(f,"Regenerate") && monHp(f)>0 && monHp(f)<f.mhpMax){ const heal=Math.min(2,f.mhpMax-monHp(f)); for(let i=0;i<f.mhp.length;i++){ if(f.mhp[i]>0){ f.mhp[i]+=heal; break; } } logLine("🩸 The "+f.monster.name+" knits its wounds (+"+heal+").",""); }
+  afterRound(f);
+}
+function renderCombatPanel(f){
+  startCombat(f); const ch=WORLD.hero, pnl=$("#panel");
+  const total=monHp(f), pct=Math.max(0,Math.round(100*total/f.mhpMax)), dead=ch.hp<=0;
+  const packPips = f.mhp.length>1 ? " ["+f.mhp.join("/")+"]" : "";
+  const abil = f.monster.abilities.length ? f.monster.abilities.map(function(a){return "<span class='tag' style='border-color:#7a3b3b'>"+a+"</span>";}).join("") : "";
+  const btn=function(id,label,detail){ return "<div class='opt method-"+(id==="attack"?"combat":"check")+" "+(dead?"disabled":"")+"' data-a='"+id+"'><div class='ol'><span class='oname'>"+label+"</span></div><div class='odetail'>"+detail+"</div></div>"; };
+  let opts = btn("attack","Attack","To-hit vs Def "+f.def+" ("+fmtMod(partyCombat(ch))+"), then weapon dmg + hit location");
+  opts += btn("sneak","Sneak past","Stealth DC "+f.dc+" ("+fmtMod(skillMod(ch,"Stealth"))+") — slip out, exits open");
+  if(!f.monster.undead) opts += btn("parley","Parley","Persuasion DC "+(f.dc+1)+" ("+fmtMod(skillMod(ch,"Persuasion"))+")");
+  if(f.monster.undead && hasItem(ch,"holy_water")) opts += btn("holy","Holy Water","Destroy the undead outright");
+  if(hasItem(ch,"potion_heal")) opts += btn("potion","Drink Potion","Heal — but it gets a free hit");
+  opts += btn("flee","Disengage","Break off (parting blow); it stays, wounded");
+  const fate = ch.fate>0 ? "<div class='opt' data-a='fate' style='border-color:"+(FATE_ARMED?'var(--gold)':'var(--line)')+"'><div class='ol'><span class='oname'>🍀 Fate: "+(FATE_ARMED?"ARMED":"off")+"</span><span class='odc'>"+ch.fate+" left</span></div><div class='odetail'>Advantage on your next roll</div></div>" : "";
+  pnl.innerHTML =
+    "<div class='etitle'>"+pxIcon(animFrames(f.monster.sprite)[0],2)+" "+f.monster.name+packPips+"</div>"+
+    "<div class='hearts' style='margin:6px 0 2px'><div class='meter hp' style='flex:1'><span style='width:"+pct+"%'></span></div><span class='hp'>"+total+"/"+f.mhpMax+"</span></div>"+
+    (abil? "<div class='taglist' style='margin-bottom:6px'>"+abil+"</div>":"")+
+    "<div class='estat'>"+(dead? "<b style='color:var(--bad)'>You have fallen — roll a New Hero.</b>" : ("<b>"+f.reaction.note+"</b>"+(lightPenalty()<0?" <span style='color:var(--bad)'>🕯️ "+lightPenalty()+" dark</span>":"")))+"</div>"+
+    fate + "<div class='opts'>"+opts+"</div>";
+  Array.prototype.forEach.call(pnl.querySelectorAll("[data-a]"), function(node){ const a=node.getAttribute("data-a");
+    node.addEventListener("click", function(){ if(a==="fate"){ if(ch.fate>0){ FATE_ARMED=!FATE_ARMED; renderCombatPanel(f); } return; } if(dead) return; combatAction(f,a); }); });
+}
+
 /* ---- resolution panel ---- */
 function panelThumb(kind, sel){
   if(kind==="feature"){ const nm = featureSprite(sel.f); const f = animFrames(nm)[0]; return pxIcon(f,2); }
@@ -896,6 +990,7 @@ function panelThumb(kind, sel){
 function renderPanel(){
   const pnl = $("#panel"), sel = WORLD.selection;
   if(!sel){ pnl.innerHTML = "<div class='empty'>Nothing selected.<br/>Choose a door or object in the room.</div>"; return; }
+  if(sel.kind==="feature" && sel.f.type==="monster"){ renderCombatPanel(sel.f); return; }   // round-based combat
   const ch = WORLD.hero; let enc;
   if(sel.kind==="exit"){ const e = exitMethods(sel.info); enc = {icon:e.icon, title:e.title+" · "+sel.dir, desc:e.desc, methods:e.methods}; }
   else { enc = featureEncounter(sel.f); }
@@ -913,8 +1008,10 @@ function renderPanel(){
     "<div class='edesc'>"+enc.desc+"</div>"+
     "<div class='estat'>Choose an approach — greyed options need gear, allies, or a prior step."+
       (lightPenalty()<0 ? " <b style='color:var(--bad)'>🕯️ Darkness: checks "+lightPenalty()+".</b>" : "")+"</div>"+
+    (ch.fate>0 ? "<div class='opt' id='fateToggle' style='border-color:"+(FATE_ARMED?'var(--gold)':'var(--line)')+"'><div class='ol'><span class='oname'>🍀 Fate: "+(FATE_ARMED?"ARMED":"off")+"</span><span class='odc'>"+ch.fate+" left</span></div><div class='odetail'>Advantage on your next roll</div></div>" : "")+
     "<div class='opts'>"+rows+"</div>";
-  Array.prototype.forEach.call(pnl.querySelectorAll(".opt"), function(node){
+  const ft = pnl.querySelector("#fateToggle"); if(ft) ft.addEventListener("click", function(){ FATE_ARMED=!FATE_ARMED; renderPanel(); });
+  Array.prototype.forEach.call(pnl.querySelectorAll(".opt[data-m]"), function(node){
     const m = filtered[+node.getAttribute("data-m")]; const available = m.req ? m.req(ch) : true; if(!available || ch.hp<=0) return;
     node.addEventListener("click", function(){ resolveMethod(m); if(WORLD.selection) renderPanel(); });
   });
