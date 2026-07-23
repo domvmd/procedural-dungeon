@@ -935,7 +935,7 @@ function endCombatRemove(f, loot){                    // slain / evaded / parley
   applyEffects(Object.assign({remove:true}, loot!=null?{loot:loot}:{}), false, null, f);
   WORLD.selection=null; renderAll();
 }
-function afterRound(f){ f.round=(f.round||0)+1; f.reaction=rollReaction(f); renderCombatPanel(f); renderSheet(); }
+function afterRound(f){ f.round=(f.round||0)+1; f.reaction=rollReaction(f); renderCombatPanel(f); renderSheet(); renderLog(); }
 function combatAction(f, action){
   const ch=WORLD.hero; if(ch.hp<=0) return; startCombat(f);
   if(action==="sneak"){ const r=doCheck(ch,"Stealth",f.dc); if(r.success){ logLine("🥷 "+r.text+" You slip past unseen.","good"); endCombatRemove(f,null); } else { logLine("🥷 "+r.text+" It spots you!","bad"); monsterStrike(f); afterRound(f); } return; }
