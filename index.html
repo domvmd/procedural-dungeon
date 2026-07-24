@@ -414,8 +414,8 @@ function rngFor(){ const parts = Array.prototype.slice.call(arguments); return m
 function pick(rng, arr){ return arr[Math.floor(rng()*arr.length)]; }
 function pickWeighted(rng, table){ let total=0; for(const t of table) total+=t[1]; let r=rng()*total; for(const t of table){ if((r-=t[1])<0) return t[0]; } return table[table.length-1][0]; }
 function hashInt(str){ return xmur3(str)() ; }
-let INJECT_D20 = null;   // single-shot: the player's manually-rolled value, consumed by the next primary d20()
-function d20(opts){ if(!(opts&&opts.raw) && INJECT_D20!==null){ const v=INJECT_D20; INJECT_D20=null; return v; } return 1 + Math.floor(Math.random()*20); }
+let INJECT_D100 = null;  // single-shot: the player's manually-rolled percentile, consumed by the next primary d100()
+function d100(opts){ if(!(opts&&opts.raw) && INJECT_D100!==null){ const v=INJECT_D100; INJECT_D100=null; return v; } return 1 + Math.floor(Math.random()*100); }
 function roll(n,sides){ let s=0; for(let i=0;i<n;i++) s+=1+Math.floor(Math.random()*sides); return s; }
 
 /* =========================================================================
@@ -466,12 +466,12 @@ function makeHero(seedStr){
   };
 }
 let FATE_ARMED = false;                             // spend Fate for advantage on the next roll
-// A d20 that rolls with advantage (best of two) when Fate is armed, spending a point.
-function d20fate(opts){
+// Roll-under advantage: roll twice, keep the LOWER (better when you want to roll under), spending a point.
+function d100fate(opts){
   const ch = WORLD.hero;
   // The player's injected value feeds the first die; the advantage die is always a fresh raw roll.
-  if(!(opts&&opts.raw) && FATE_ARMED && ch && ch.fate>0){ ch.fate--; FATE_ARMED=false; const a=d20(opts), b=d20({raw:true}); logLine("🍀 Fate spent — advantage ("+a+"/"+b+").","gold"); return Math.max(a,b); }
-  return d20(opts);
+  if(!(opts&&opts.raw) && FATE_ARMED && ch && ch.fate>0){ ch.fate--; FATE_ARMED=false; const a=d100(opts), b=d100({raw:true}); logLine("🍀 Fate spent — advantage ("+a+"/"+b+").","gold"); return Math.min(a,b); }
+  return d100(opts);
 }
 
 /* =========================================================================
@@ -491,7 +491,7 @@ function buildEventModal(){
       "<div class='ev-head'><span class='ev-thumb'></span><span class='ev-title'></span></div>"+
       "<div class='ev-desc'></div>"+
       "<div class='ev-dice'><div class='d20'><div class='hex'></div><div class='face'><span class='num'>20</span></div></div>"+
-        "<div class='ev-dicecol'><div class='ev-verdict'></div><button class='ev-roll' type='button'>Roll the d20</button></div></div>"+
+        "<div class='ev-dicecol'><div class='ev-verdict'></div><button class='ev-roll' type='button'>Roll the d100</button></div></div>"+
       "<div class='ev-outcome' hidden></div>"+
       "<button class='ev-continue' type='button' hidden>Continue</button>"+
     "</div>";
@@ -527,14 +527,14 @@ function rollDieTo(target, cb){
   const t0=performance.now(), dur=820;
   (function spin(){
     const p=(performance.now()-t0)/dur;
-    if(p<1){ EVNUM.textContent=String(1+Math.floor(Math.random()*20)); setTimeout(spin, 38 + 150*p*p); }
+    if(p<1){ EVNUM.textContent=String(1+Math.floor(Math.random()*100)); setTimeout(spin, 38 + 150*p*p); }
     else { EVDIE.classList.remove("rolling"); EVNUM.textContent=String(target); applyVerdict(target); setTimeout(cb, 260); }
   })();
 }
-function applyVerdict(v){
+function applyVerdict(v){          // roll-under: a natural 01-05 is a critical, 96-100 a fumble
   EVVERDICT.className="ev-verdict";
-  if(v===20){ EVDIE.classList.add("crit"); EVVERDICT.textContent="CRIT!"; }
-  else if(v===1){ EVDIE.classList.add("fumble"); EVVERDICT.classList.add("fumble"); EVVERDICT.textContent="FUMBLE!"; }
+  if(v<=5){ EVDIE.classList.add("crit"); EVVERDICT.textContent="CRIT!"; }
+  else if(v>=96){ EVDIE.classList.add("fumble"); EVVERDICT.classList.add("fumble"); EVVERDICT.textContent="FUMBLE!"; }
   else EVVERDICT.textContent="";
 }
 // meta:{rolls,title,thumb(html),desc(html)}  run: closure that resolves the action (logs to Chronicle).
@@ -557,16 +557,16 @@ function runAction(meta, run){
     else outcome();
   };
   if(meta.rolls){
-    EVDICE.hidden=false; EVROLL.hidden=false; EVROLL.disabled=false; EVNUM.textContent="20";
+    EVDICE.hidden=false; EVROLL.hidden=false; EVROLL.disabled=false; EVNUM.textContent="00";
     showCard(); EVROLL.focus();
     EVROLL.onclick=function(){
       EVROLL.disabled=true; EVROLL.hidden=true;
-      const r = 1 + Math.floor(Math.random()*20);
-      rollDieTo(r, function(){ INJECT_D20=r; try{ run(); } finally { INJECT_D20=null; } reveal(); });
+      const r = 1 + Math.floor(Math.random()*100);
+      rollDieTo(r, function(){ INJECT_D100=r; try{ run(); } finally { INJECT_D100=null; } reveal(); });
     };
   } else {
     EVDICE.hidden=true; showCard();
-    try{ run(); } finally { INJECT_D20=null; }
+    try{ run(); } finally { INJECT_D100=null; }
     reveal();
   }
 }
@@ -585,6 +585,28 @@ function addItem(ch, name, tag, qty){ qty=qty||1; const it=ch.inventory.find(fun
 function attackBonus(ch, wpn){ return mod(ch.stats[wpn.stat]) + ch.prof; }
 function partyCombat(ch){ let best=0; for(const w of ch.weapons) best=Math.max(best, attackBonus(ch,w)); for(const a of ch.allies) if(a.type==="combat") best+=a.bonus; return best; }
 
+/* ---- D100 Dungeon percentile skills & roll-under helpers ----
+   Abilities are shown/used as percentages; a check succeeds when d100 rolls at or
+   under the Target Number (skill% + difficulty). Difficulty is derived from the old
+   roll-over DC so the dungeon's existing tuning carries over. */
+const PROF_PCT = 15, BUFF_PCT = 10, ALLY_PCT = 5;
+function abilityPct(ch, k){ return ch.stats[k]*4; }                 // score 3-18 → 12-72%
+function skillPct(ch, skill){ let p = abilityPct(ch, SKILLS[skill]);
+  if(ch.proficient.has(skill)) p += PROF_PCT;
+  for(const b of ch.buffs){ if(b.all || b.skill===skill) p += BUFF_PCT; }
+  for(const a of ch.allies){ if(a.type===skill) p += ALLY_PCT; }
+  return p; }
+function lightPct(){ return lightPenalty()*5; }                    // failing light: 0 / -5 / -15
+function dcToDiff(dc){ return (12 - dc) * 6; }                     // old DC → roll-under difficulty modifier
+function clampPct(t){ return Math.max(5, Math.min(95, Math.round(t))); }  // 01-05 always hit, 96-100 always miss
+// A skill's Target Number for a given difficulty (what you roll at/under).
+function skillTN(ch, skill, dc){ return clampPct(skillPct(ch,skill) + dcToDiff(dc) + lightPct()); }
+// Melee/ranged to-hit % = best weapon's governing ability (+ proficiency, combat allies, light).
+function heroToHit(ch){ let best=0; for(const w of ch.weapons) best=Math.max(best, abilityPct(ch,w.stat)+PROF_PCT);
+  for(const a of ch.allies) if(a.type==="combat") best+=ALLY_PCT; return clampPct(best + lightPct()); }
+function monsterAV(f){ const ch=WORLD.hero; return clampPct((21 - (ch.ac - f.atk))*5); }  // preserves the old hit odds
+function monsterDR(f){ return Math.max(0, f.def - 11); }           // old to-hit Def → D100 damage reduction
+
 /* =========================================================================
    ENCOUNTERS — each method is a resolution path keyed to a stat/skill/item.
    ========================================================================= */
@@ -596,25 +618,25 @@ function exitMethods(edge){
     case "locked": return { icon:"🔒", title:"Locked Door", desc:"A heavy iron-banded door, firmly locked.",
       methods:[
         { label:"Pick the lock", cls:"check", req:function(ch){return hasItem(ch,"thieves_tools");}, reqText:"needs Thieves' Tools",
-          detail:function(ch){return "Sleight of Hand DC "+dc+" ("+fmtMod(skillMod(ch,"SleightOfHand"))+")";},
+          detail:function(ch){return "Sleight of Hand — "+skillTN(ch,"SleightOfHand",dc)+"%";},
           resolve:function(ch){ const r=doCheck(ch,"SleightOfHand",dc); return {ok:r.success, text:r.text+(r.success?" The lock clicks open.":" The picks slip."), effects:r.success?{open:true}:{}};}},
         { label:"Use a Key", cls:"item", req:function(ch){return hasItem(ch,"key");}, reqText:"needs a Key", detail:"Consumes one key.",
           resolve:function(ch){ consume(ch,"key"); return {ok:true, text:"The key turns. The door swings wide.", effects:{open:true}};}},
-        { label:"Break it down", cls:"check", detail:function(ch){return "Athletics DC "+(dc+2)+" ("+fmtMod(skillMod(ch,"Athletics"))+") — noisy!";},
+        { label:"Break it down", cls:"check", detail:function(ch){return "Athletics — "+skillTN(ch,"Athletics",(dc+2))+"% — noisy!";},
           resolve:function(ch){ const r=doCheck(ch,"Athletics",dc+2); return {ok:r.success, text:r.text+(r.success?" Timber splinters!":" It holds firm."), effects:r.success?{open:true}:{dmg:roll(1,4)}};}},
         { label:"Scroll of Knock", cls:"item", req:function(ch){return hasItem(ch,"scroll_knock");}, reqText:"needs the scroll", detail:"Consumes the scroll.",
           resolve:function(ch){ consume(ch,"scroll_knock"); return {ok:true, text:"The scroll flares — the lock bursts apart!", effects:{open:true}};}}
       ]};
     case "rubble": return { icon:"🪨", title:"Collapsed Passage", desc:"Fallen stone chokes the doorway.",
       methods:[
-        { label:"Heave the rubble", cls:"check", detail:function(ch){return "Athletics DC "+dc+" ("+fmtMod(skillMod(ch,"Athletics"))+")";},
+        { label:"Heave the rubble", cls:"check", detail:function(ch){return "Athletics — "+skillTN(ch,"Athletics",dc)+"%";},
           resolve:function(ch){const r=doCheck(ch,"Athletics",dc); return {ok:r.success, text:r.text+(r.success?" You clear a gap.":" It won't budge."), effects:r.success?{open:true}:{dmg:roll(1,4)}};}},
         { label:"Pry with Crowbar", cls:"item", req:function(ch){return hasItem(ch,"crowbar");}, reqText:"needs a Crowbar", detail:"Leverage grants easy passage.",
           resolve:function(){return {ok:true, text:"The crowbar pops the stones loose.", effects:{open:true}};}}
       ]};
     case "warded": return { icon:"✨", title:"Warded Gate", desc:"Runes crawl with cold light across the threshold.",
       methods:[
-        { label:"Dispel the ward", cls:"check", detail:function(ch){return "Arcana DC "+dc+" ("+fmtMod(skillMod(ch,"Arcana"))+")";},
+        { label:"Dispel the ward", cls:"check", detail:function(ch){return "Arcana — "+skillTN(ch,"Arcana",dc)+"%";},
           resolve:function(ch){const r=doCheck(ch,"Arcana",dc); return {ok:r.success, text:r.text+(r.success?" The runes gutter and die.":" The runes flare back!"), effects:r.success?{open:true}:{dmg:roll(1,6)}};}},
         { label:"Scroll of Dispel", cls:"item", req:function(ch){return hasItem(ch,"scroll_dispel");}, reqText:"needs the scroll", detail:"Consumes the scroll.",
           resolve:function(ch){consume(ch,"scroll_dispel"); return {ok:true, text:"The counter-scroll erases the ward.", effects:{open:true}};}}
@@ -664,18 +686,18 @@ function featureEncounter(f){
     case "locked_chest": return { icon:"🧰", title:"Locked Chest", desc:"An oak chest bound in iron. No trap — just a stubborn lock.",
       methods:[
         {label:"Pick the lock", cls:"check", req:function(ch){return hasItem(ch,"thieves_tools");}, reqText:"needs Thieves' Tools",
-          detail:function(ch){return "Sleight of Hand DC "+dc+" ("+fmtMod(skillMod(ch,"SleightOfHand"))+")";},
+          detail:function(ch){return "Sleight of Hand — "+skillTN(ch,"SleightOfHand",dc)+"%";},
           resolve:function(ch){const r=doCheck(ch,"SleightOfHand",dc); return {ok:r.success, text:r.text+(r.success?" Inside: "+f.gold+" gold.":" Locked tight."), effects:r.success?{loot:f.gold, remove:true}:{}};}},
         {label:"Use a Key", cls:"item", req:function(ch){return hasItem(ch,"key");}, reqText:"needs a Key", detail:"Consumes one key.",
           resolve:function(ch){consume(ch,"key"); return {ok:true, text:"The key fits! "+f.gold+" gold inside.", effects:{loot:f.gold, remove:true}};}},
-        {label:"Smash it open", cls:"check", detail:function(ch){return "Athletics DC "+(dc+1)+" ("+fmtMod(skillMod(ch,"Athletics"))+") — may damage loot";},
+        {label:"Smash it open", cls:"check", detail:function(ch){return "Athletics — "+skillTN(ch,"Athletics",(dc+1))+"% — may damage loot";},
           resolve:function(ch){const r=doCheck(ch,"Athletics",dc+1); const g=r.success?Math.floor(f.gold*0.7):0; return {ok:r.success, text:r.success?("Splinters fly — "+g+" gold (some scattered)."):"The chest resists.", effects:r.success?{loot:g, remove:true}:{}};}}
       ]};
     case "trapped_chest": return { icon:"🧨", title:"Trapped Chest", desc: f.trapKnown ? "You spotted a needle-trap wired to the lid." : "A tempting chest… something feels wrong.",
       methods:[
-        {label:"Inspect for traps", cls:"check", hideIf:function(){return f.trapKnown;}, detail:function(ch){return "Investigation DC "+dc+" ("+fmtMod(skillMod(ch,"Investigation"))+")";},
+        {label:"Inspect for traps", cls:"check", hideIf:function(){return f.trapKnown;}, detail:function(ch){return "Investigation — "+skillTN(ch,"Investigation",dc)+"%";},
           resolve:function(ch){const r=doCheck(ch,"Investigation",dc); if(r.success)f.trapKnown=true; return {ok:r.success, text:r.success?"You trace a poisoned needle wired to the latch.":"Nothing obvious… you think.", effects:{}};}},
-        {label:"Disarm the trap", cls:"check", req:function(ch){return hasItem(ch,"thieves_tools")&&f.trapKnown;}, reqText:f.trapKnown?"needs Thieves' Tools":"inspect first", detail:function(ch){return "Sleight of Hand DC "+dc+" ("+fmtMod(skillMod(ch,"SleightOfHand"))+")";},
+        {label:"Disarm the trap", cls:"check", req:function(ch){return hasItem(ch,"thieves_tools")&&f.trapKnown;}, reqText:f.trapKnown?"needs Thieves' Tools":"inspect first", detail:function(ch){return "Sleight of Hand — "+skillTN(ch,"SleightOfHand",dc)+"%";},
           resolve:function(ch){const r=doCheck(ch,"SleightOfHand",dc); if(r.success){f.trapped=false; return {ok:true, text:"Click — the needle retracts. Safe now.", effects:{}};} return {ok:false, text:r.text+" The needle springs — poison!", effects:{dmg:roll(2,4)}};}},
         {label:"Force it open", cls:"auto", detail:function(){return f.trapped?"Risk the trap for the gold.":"Safe — take the loot.";},
           resolve:function(){ if(f.trapped){ const dmg=roll(2,6); return {ok:false, text:"The trap triggers! "+dmg+" damage — but you grab "+f.gold+" gold.", effects:{dmg:dmg, loot:f.gold, remove:true}}; } return {ok:true, text:"Disarmed and open — "+f.gold+" gold.", effects:{loot:f.gold, remove:true}};}}
@@ -684,11 +706,11 @@ function featureEncounter(f){
       const m = f.monster;
       return { icon:"🐉", title:m.name, desc: m.undead ? "Undead stir — cold and relentless." : "A hostile creature blocks your path.",
       methods:[
-        {label:"Fight it", cls:"combat", detail:function(ch){return "Attack "+fmtMod(partyCombat(ch))+" vs Defense "+dc;},
-          resolve:function(ch){ const atk=d20()+partyCombat(ch)+lightPenalty(); const ok=atk>=dc; if(ok) return {ok:true, text:"⚔️ Attack "+atk+" vs "+dc+" — the "+m.name+" falls! You loot "+f.gold+" gold.", effects:{loot:f.gold, remove:true}}; const dmg=roll(2,6); return {ok:false, text:"⚔️ Attack "+atk+" vs "+dc+" — it wounds you for "+dmg+".", effects:{dmg:dmg}};}},
-        {label:"Sneak past", cls:"check", detail:function(ch){return "Stealth DC "+dc+" ("+fmtMod(skillMod(ch,"Stealth"))+")";},
+        {label:"Fight it", cls:"combat", detail:function(ch){return "Attack — hit on "+heroToHit(ch)+"% or under";},
+          resolve:function(ch){ const d=d100(), th=heroToHit(ch); if(d<=th) return {ok:true, text:"⚔️ d100 "+d+" vs "+th+"% — the "+m.name+" falls! You loot "+f.gold+" gold.", effects:{loot:f.gold, remove:true}}; const dmg=roll(2,6); return {ok:false, text:"⚔️ d100 "+d+" vs "+th+"% — you miss, and it wounds you for "+dmg+".", effects:{dmg:dmg}};}},
+        {label:"Sneak past", cls:"check", detail:function(ch){return "Stealth — "+skillTN(ch,"Stealth",dc)+"%";},
           resolve:function(ch){const r=doCheck(ch,"Stealth",dc); return {ok:r.success, text:r.success?"You melt into shadow and slip by.":r.text+" It notices you!", effects:r.success?{remove:true}:{dmg:roll(1,6)}};}},
-        {label:"Parley", cls:"check", hideIf:function(){return m.undead;}, detail:function(ch){return "Persuasion DC "+(dc+1)+" ("+fmtMod(skillMod(ch,"Persuasion"))+")";},
+        {label:"Parley", cls:"check", hideIf:function(){return m.undead;}, detail:function(ch){return "Persuasion — "+skillTN(ch,"Persuasion",(dc+1))+"%";},
           resolve:function(ch){const r=doCheck(ch,"Persuasion",dc+1); return {ok:r.success, text:r.success?"You strike a bargain — it lets you pass and gifts a token.":"It sneers and attacks!", effects:r.success?{loot:Math.floor(f.gold/2), remove:true}:{dmg:roll(1,6)}};}},
         {label:"Turn with Holy Water", cls:"item", req:function(ch){return hasItem(ch,"holy_water")&&m.undead;}, reqText:m.undead?"needs Holy Water":"only vs undead", detail:"Consumes Holy Water.",
           resolve:function(ch){consume(ch,"holy_water"); return {ok:true, text:"Blessed water sears the undead to ash!", effects:{loot:f.gold, remove:true}};}}
@@ -696,51 +718,51 @@ function featureEncounter(f){
     }
     case "trap": return { icon:"⚠️", title:"Hidden Trap", desc: f.known ? "A pressure plate, now clearly visible." : "The flagstones look… deliberate.",
       methods:[
-        {label:"Study the mechanism", cls:"check", hideIf:function(){return f.known;}, detail:function(ch){return "Perception DC "+dc+" ("+fmtMod(skillMod(ch,"Perception"))+")";},
+        {label:"Study the mechanism", cls:"check", hideIf:function(){return f.known;}, detail:function(ch){return "Perception — "+skillTN(ch,"Perception",dc)+"%";},
           resolve:function(ch){const r=doCheck(ch,"Perception",dc); if(r.success)f.known=true; return {ok:r.success, text:r.success?"You spot a dart-trap plate.":"You sense nothing.", effects:{}};}},
-        {label:"Disarm it", cls:"check", req:function(ch){return hasItem(ch,"thieves_tools")&&f.known;}, reqText:f.known?"needs Thieves' Tools":"find it first", detail:function(ch){return "Sleight of Hand DC "+dc+" ("+fmtMod(skillMod(ch,"SleightOfHand"))+")";},
+        {label:"Disarm it", cls:"check", req:function(ch){return hasItem(ch,"thieves_tools")&&f.known;}, reqText:f.known?"needs Thieves' Tools":"find it first", detail:function(ch){return "Sleight of Hand — "+skillTN(ch,"SleightOfHand",dc)+"%";},
           resolve:function(ch){const r=doCheck(ch,"SleightOfHand",dc); return {ok:r.success, text:r.success?"You jam the mechanism. Safe.":r.text+" It snaps at you!", effects:r.success?{remove:true}:{dmg:roll(1,6)}};}},
-        {label:"Leap over it", cls:"check", detail:function(ch){return "Acrobatics DC "+dc+" ("+fmtMod(skillMod(ch,"Acrobatics"))+")";},
+        {label:"Leap over it", cls:"check", detail:function(ch){return "Acrobatics — "+skillTN(ch,"Acrobatics",dc)+"%";},
           resolve:function(ch){const r=doCheck(ch,"Acrobatics",dc); return {ok:r.success, text:r.success?"You vault past cleanly.":"You clip the plate — darts fly!", effects:r.success?{remove:true}:{dmg:roll(2,4)}};}}
       ]};
     case "shrine": return { icon:"⛩️", title:"Forgotten Shrine", desc:"A mossy altar hums with faint benevolence.",
       methods:[
-        {label:"Offer a prayer", cls:"check", detail:function(ch){return "Religion DC "+dc+" ("+fmtMod(skillMod(ch,"Religion"))+")";},
+        {label:"Offer a prayer", cls:"check", detail:function(ch){return "Religion — "+skillTN(ch,"Religion",dc)+"%";},
           resolve:function(ch){const r=doCheck(ch,"Religion",dc); if(r.success) return {ok:true, text:"Warmth floods you — a blessing (+1 to all checks) and healing.", effects:{buff:{name:"Shrine's Blessing", all:true, bonus:1}, heal:roll(2,4), remove:true}}; return {ok:false, text:"The altar stays silent.", effects:{remove:true}};}},
         {label:"Leave an offering", cls:"item", req:function(ch){return ch.gold>=20;}, reqText:"needs 20 gold", detail:"Trade 20 gold for certain favor.",
           resolve:function(ch){ch.gold-=20; return {ok:true, text:"The gods accept. Full healing and a blessing.", effects:{buff:{name:"Shrine's Blessing", all:true, bonus:1}, heal:999, remove:true}};}}
       ]};
     case "riddle": return { icon:"📜", title:"Riddle Altar", desc:"\"I have cities but no houses, forests but no trees, water but no fish. What am I?\"",
       methods:[
-        {label:"Answer with lore", cls:"check", detail:function(ch){return "Arcana DC "+dc+" ("+fmtMod(skillMod(ch,"Arcana"))+")";},
+        {label:"Answer with lore", cls:"check", detail:function(ch){return "Arcana — "+skillTN(ch,"Arcana",dc)+"%";},
           resolve:function(ch){const r=doCheck(ch,"Arcana",dc); if(r.success) return {ok:true, text:"\"A map.\" The altar yields a Healing Potion and gold.", effects:{item:{name:"Healing Potion",tag:"potion_heal"}, loot:f.gold, remove:true}}; return {ok:false, text:"The runes dim, unimpressed.", effects:{remove:true}};}},
-        {label:"Recall history", cls:"check", detail:function(ch){return "Investigation DC "+(dc+1)+" ("+fmtMod(skillMod(ch,"Investigation"))+")";},
+        {label:"Recall history", cls:"check", detail:function(ch){return "Investigation — "+skillTN(ch,"Investigation",(dc+1))+"%";},
           resolve:function(ch){const r=doCheck(ch,"Investigation",dc+1); return {ok:r.success, text:r.success?"\"A map!\" A hidden drawer clicks open with gold.":"You draw a blank.", effects:r.success?{loot:f.gold, remove:true}:{remove:true}};}}
       ]};
     case "prisoner": return { icon:"🧍", title:"Captive Wanderer", desc:"A ragged figure chained to the wall pleads for freedom.",
       methods:[
-        {label:"Pick the shackles", cls:"check", req:function(ch){return hasItem(ch,"thieves_tools");}, reqText:"needs Thieves' Tools", detail:function(ch){return "Sleight of Hand DC "+dc+" ("+fmtMod(skillMod(ch,"SleightOfHand"))+")";},
+        {label:"Pick the shackles", cls:"check", req:function(ch){return hasItem(ch,"thieves_tools");}, reqText:"needs Thieves' Tools", detail:function(ch){return "Sleight of Hand — "+skillTN(ch,"SleightOfHand",dc)+"%";},
           resolve:function(ch){const r=doCheck(ch,"SleightOfHand",dc); return {ok:r.success, text:r.success?"Freed! They swear to fight at your side.":"The lock resists.", effects:r.success?{ally:{name:"Freed Captive", type:"combat", bonus:2}, remove:true}:{}};}},
-        {label:"Reassure them", cls:"check", detail:function(ch){return "Persuasion DC "+dc+" ("+fmtMod(skillMod(ch,"Persuasion"))+")";},
+        {label:"Reassure them", cls:"check", detail:function(ch){return "Persuasion — "+skillTN(ch,"Persuasion",dc)+"%";},
           resolve:function(ch){const r=doCheck(ch,"Persuasion",dc); return {ok:r.success, text:r.success?"They calm, reveal a lockword, and join you.":"They recoil in fear.", effects:r.success?{ally:{name:"Grateful Guide", type:"Perception", bonus:1}, remove:true}:{}};}},
-        {label:"Break the chains", cls:"check", detail:function(ch){return "Athletics DC "+(dc+1)+" ("+fmtMod(skillMod(ch,"Athletics"))+")";},
+        {label:"Break the chains", cls:"check", detail:function(ch){return "Athletics — "+skillTN(ch,"Athletics",(dc+1))+"%";},
           resolve:function(ch){const r=doCheck(ch,"Athletics",dc+1); return {ok:r.success, text:r.success?"Iron snaps — they rise, grateful and armed.":"The chains hold.", effects:r.success?{ally:{name:"Freed Captive", type:"combat", bonus:2}, remove:true}:{dmg:roll(1,4)}};}}
       ]};
     case "chasm": return { icon:"🕳️", title:"Yawning Chasm", desc:"A black rift splits the floor. Something you want lies beyond.",
       methods:[
-        {label:"Leap across", cls:"check", detail:function(ch){return "Athletics DC "+dc+" ("+fmtMod(skillMod(ch,"Athletics"))+")";},
+        {label:"Leap across", cls:"check", detail:function(ch){return "Athletics — "+skillTN(ch,"Athletics",dc)+"%";},
           resolve:function(ch){const r=doCheck(ch,"Athletics",dc); return {ok:r.success, text:r.success?("You clear the gap and seize "+f.gold+" gold!"):"You fall short — grabbing the ledge, battered.", effects:r.success?{loot:f.gold, remove:true}:{dmg:roll(2,6)}};}},
         {label:"Swing on Grappling Hook", cls:"item", req:function(ch){return hasItem(ch,"grapple")||hasItem(ch,"rope");}, reqText:"needs Rope or Grapple", detail:"Safe crossing.",
           resolve:function(){return {ok:true, text:"The line holds — you cross and claim "+f.gold+" gold.", effects:{loot:f.gold, remove:true}};}}
       ]};
     case "trapdoor": return { icon:"⬇️", title:"Trap Door", desc: f.known ? "A hinged hatch gapes in the floor — it drops to a deeper level." : "The floorboards here ring hollow.",
       methods:[
-        {label:"Examine the floor", cls:"check", hideIf:function(){return f.known;}, detail:function(ch){return "Perception DC "+dc+" ("+fmtMod(skillMod(ch,"Perception"))+")";},
+        {label:"Examine the floor", cls:"check", hideIf:function(){return f.known;}, detail:function(ch){return "Perception — "+skillTN(ch,"Perception",dc)+"%";},
           resolve:function(ch){const r=doCheck(ch,"Perception",dc); if(r.success)f.known=true; return {ok:r.success, text:r.success?"A concealed hatch — it leads down.":"Just old boards, surely.", effects:{}};}},
         {label:"Descend by Rope", cls:"item", req:function(ch){return (hasItem(ch,"rope")||hasItem(ch,"grapple"))&&f.known;}, reqText:f.known?"needs Rope":"find it first", detail:"Climb safely to the next depth.",
           resolve:function(){return {ok:true, text:"You rope down to the level below.", effects:{descend:true}};}},
-        {label:"Drop down", cls:"check", req:function(ch){return f.known;}, reqText:"find it first", detail:function(ch){return "DEX save DC "+dc+" ("+fmtMod(mod(ch.stats.DEX))+") or take fall damage";},
-          resolve:function(ch){const r20=d20(); const total=r20+mod(ch.stats.DEX)+lightPenalty(); const ok=total>=dc; return {ok:ok, text:"You drop through — save "+total+" vs "+dc+"."+(ok?" A clean landing.":" A hard landing!"), effects:ok?{descend:true}:{descend:true, dmg:roll(2,6)}};}}
+        {label:"Drop down", cls:"check", req:function(ch){return f.known;}, reqText:"find it first", detail:function(ch){return "DEX save — "+clampPct(abilityPct(ch,"DEX")+dcToDiff(dc)+lightPct())+"% or take fall damage";},
+          resolve:function(ch){const d=d100(), tn=clampPct(abilityPct(ch,"DEX")+dcToDiff(dc)+lightPct()), ok=d<=tn; return {ok:ok, text:"You drop through — DEX save "+d+" vs "+tn+"%."+(ok?" A clean landing.":" A hard landing!"), effects:ok?{descend:true}:{descend:true, dmg:roll(2,6)}};}}
       ]};
     case "ascent": return { icon:"⬆️", title:"Stairway Up", desc:"Worn steps spiral back toward the level above.",
       methods:[ {label:"Climb up", cls:"auto", detail:"Return to the previous depth.", resolve:function(){return {ok:true, text:"You ascend the stair.", effects:{ascend:true}};}} ]};
@@ -756,7 +778,7 @@ function featureEncounter(f){
         {label:"Pry it open", cls:"auto", detail:"Take the "+f.torches+" torch"+(f.torches>1?"es":"")+(f.potion?" + potion":"")+" inside.",
           resolve:function(){ return {ok:true, text:"You crack it open — "+f.torches+" torch"+(f.torches>1?"es":"")+(f.potion?", a Healing Potion":"")+(f.gold?" and "+f.gold+" gold":"")+".",
             effects: Object.assign({loot:f.gold||0, remove:true}, f.potion?{item:{name:"Healing Potion",tag:"potion_heal"}}:{}) }; }},
-        {label:"Rummage carefully", cls:"check", detail:function(ch){return "Investigation DC "+dc+" ("+fmtMod(skillMod(ch,"Investigation"))+") — maybe an extra torch";},
+        {label:"Rummage carefully", cls:"check", detail:function(ch){return "Investigation — "+skillTN(ch,"Investigation",dc)+"% — maybe an extra torch";},
           resolve:function(ch){ const rr=doCheck(ch,"Investigation",dc); return {ok:true, text:rr.text+(rr.success?" You pry loose a spare torch too.":" You take what's stacked on top."),
             effects: Object.assign({loot:f.gold||0, remove:true, torches:(rr.success?1:0)}, f.potion?{item:{name:"Healing Potion",tag:"potion_heal"}}:{}) }; }}
       ]};
@@ -764,10 +786,10 @@ function featureEncounter(f){
   return {icon:"❓", title:"Curiosity", desc:"You examine it, but find nothing of note.", methods:[{label:"Move on", cls:"auto", detail:"", resolve:function(){return {ok:true, text:"Nothing here.", effects:{remove:true}};}}]};
 }
 function doCheck(ch, skill, dc){
-  const d = d20fate(); const m = skillMod(ch, skill); const pen = lightPenalty(); const total = d + m + pen;
-  const crit = d===20, fumble = d===1; const success = crit ? true : fumble ? false : total>=dc;
-  return { d:d, m:m, total:total, dc:dc, success:success,
-    text:"d20 "+d+fmtMod(m)+(pen?" "+pen+" dark":"")+" = "+total+" vs DC "+dc+(crit?" — CRIT!":fumble?" — fumble!":"")+"." };
+  const d = d100fate(); const tn = skillTN(ch, skill, dc);
+  const crit = d<=5, fumble = d>=96; const success = crit ? true : fumble ? false : d<=tn;
+  return { d:d, tn:tn, dc:dc, success:success,
+    text:"d100 "+d+" vs "+tn+"% ("+skill+")"+(crit?" — CRIT!":fumble?" — fumble!":(success?" — under, success.":" — over, fail."))+"" };
 }
 
 /* =========================================================================
@@ -981,15 +1003,15 @@ function heartRow(ch){
 }
 function renderSheet(){
   const ch = WORLD.hero;
-  const stats = STAT_KEYS.map(function(k){ return "<div class='stat'><div class='name'>"+k+"</div><div class='val'>"+ch.stats[k]+"</div><div class='mod'>"+fmtMod(mod(ch.stats[k]))+"</div></div>"; }).join("");
-  const skillChips = Object.keys(SKILLS).map(function(s){ const prof = ch.proficient.has(s); return "<span class='skill "+(prof?'prof':'')+"'>"+s+" <b>"+fmtMod(skillMod(ch,s))+"</b></span>"; }).join("");
+  const stats = STAT_KEYS.map(function(k){ return "<div class='stat'><div class='name'>"+k+"</div><div class='val'>"+abilityPct(ch,k)+"%</div><div class='mod'>roll under</div></div>"; }).join("");
+  const skillChips = Object.keys(SKILLS).map(function(s){ const prof = ch.proficient.has(s); return "<span class='skill "+(prof?'prof':'')+"'>"+s+" <b>"+skillPct(ch,s)+"%</b></span>"; }).join("");
   const items = ch.inventory.length? ch.inventory.map(function(i){return "<span class='tag'>"+i.name+(i.qty>1?" <span class='qty'>×"+i.qty+"</span>":"")+"</span>";}).join("") : "<span class='skill'>— empty —</span>";
   const wpns = ch.weapons.map(function(w){ const spr = WEAPON_SPRITE[w.name]; return "<span class='tag wpn'>"+(spr?pxIcon(spr,2):"")+w.name+" <span class='qty'>"+fmtMod(attackBonus(ch,w))+"·"+w.dmg+"</span></span>"; }).join("");
   const allies = ch.allies.length? ch.allies.map(function(a){return "<span class='tag ally'>"+a.name+" <span class='qty'>+"+a.bonus+"</span></span>";}).join("") : "<span class='skill'>— none —</span>";
   const buffs = ch.buffs.length? "<div style='margin-top:6px'>"+ch.buffs.map(function(b){return "<span class='tag' style='border-color:var(--good)'>✦ "+b.name+"</span>";}).join("")+"</div>":"";
   $("#sheet").innerHTML =
     "<h2>"+pxIcon(curFrame(ch.sprite)||animFrames(ch.sprite)[0],2)+" "+ch.name+"</h2>"+
-    "<div class='hint' style='text-align:left;margin:-2px 0 8px'>Level "+ch.level+" "+ch.cls+" · AC "+ch.ac+" · Prof "+fmtMod(ch.prof)+" · "+pxIcon("coin_anim_f0",2)+" "+ch.gold+"</div>"+
+    "<div class='hint' style='text-align:left;margin:-2px 0 8px'>Level "+ch.level+" "+ch.cls+" · Def "+ch.ac+" · Prof +"+PROF_PCT+"% · "+pxIcon("coin_anim_f0",2)+" "+ch.gold+"</div>"+
     "<div class='hearts'>"+heartRow(ch)+"<span class='hp'>"+ch.hp+" / "+ch.maxHp+" HP</span></div>"+
     "<div class='torchrow"+(ch.torchLit?"":" out")+"'><span class='tlabel'>"+(ch.torchLit?"🔥":"🕯️")+" Torch</span>"+
       "<div class='meter torch'><span id='torchFuel' style='width:"+(ch.torchLit?Math.round(100*Math.max(0,ch.torchFuel)/TORCH_DURATION):0)+"%'></span></div>"+
@@ -1267,8 +1289,8 @@ function monsterStrike(f, delay){
   const ch=WORLD.hero; delay=delay||0; const t0=performance.now()+delay;
   let atk = f.atk + (hasAbil(f,"Pack") ? (monMembers(f)-1) : 0);
   if(f.reaction.type==="enrage") atk += f.reaction.bonus;
-  const total = d20()+atk; f.react={type:"lunge", t0:t0};                                   // it steps in to strike
-  if(total < ch.ac){ logLine("🛡️ The "+f.monster.name+" swings and misses ("+total+" vs AC "+ch.ac+").",""); return; }
+  const av = clampPct((21 - (ch.ac - atk))*5), d = d100(); f.react={type:"lunge", t0:t0};    // it rolls at/under its Attack Value
+  if(d > av){ logLine("🛡️ The "+f.monster.name+" swings and misses ("+d+" vs "+av+"%).",""); return; }
   const loc=hitLocation(), die=roll(1,6); let dmg=die+loc[1]+f.dmg; if(hasAbil(f,"Large") && die<=2) dmg+=2; dmg=Math.max(1,dmg);
   ch.hp -= dmg; logLine("💥 The "+f.monster.name+" strikes your "+loc[0]+" for <b>"+dmg+"</b>.","bad");
   const t=monTile(f), ax=HERO_TILE[0]-t.c, ay=HERO_TILE[1]-t.r, L=Math.hypot(ax,ay)||1;
@@ -1293,15 +1315,15 @@ function combatAction(f, action){
   // ATTACK — a full combat round
   if(ch.poison>0){ ch.hp-=1; logLine("☠️ Poison gnaws you for 1.","bad"); if(heroDeathCheck()){ renderAll(); renderCombatPanel(f); return; } }
   let feared=false;
-  if(hasAbil(f,"Fear")){ const s=d20fate({raw:true})+mod(ch.stats.WIS)+lightPenalty(); if(s < 11+WORLD.pos.z){ feared=true; logLine("😱 Fear grips you (save "+s+") — your strike falters.","bad"); } }
+  if(hasAbil(f,"Fear")){ const d=d100fate({raw:true}), tn=clampPct(abilityPct(ch,"WIS")-WORLD.pos.z*6+lightPct()); if(d>tn){ feared=true; logLine("😱 Fear grips you (WIS save "+d+" vs "+tn+"%) — your strike falters.","bad"); } }
   let dealt=0;
   if(!feared){ const t=monTile(f), sx=t.c-HERO_TILE[0], sy=t.r-HERO_TILE[1], SL=Math.hypot(sx,sy)||1;
     ch.atkAnim={t0:performance.now(), dur:300, dx:sx/SL, dy:sy/SL};                          // hero lunges + swings
-    const atk=d20fate()+partyCombat(ch)+lightPenalty();
-    if(atk>=f.def){ const loc=hitLocation(); const dmg=Math.max(1, rollWeapon(ch)+loc[1]); dealt=dmg; dealToMonster(f,dmg);
+    const d=d100fate(), th=heroToHit(ch), crit=d<=5;
+    if(d<=th){ const loc=hitLocation(); let dmg=Math.max(1, rollWeapon(ch)+loc[1]-monsterDR(f)); if(crit) dmg*=2; dealt=dmg; dealToMonster(f,dmg);
       f.hitFlash={t0:performance.now()+150};                                                 // enemy flashes as the blow lands
-      logLine("⚔️ You hit its "+loc[0]+" ("+atk+" vs Def "+f.def+") for <b>"+dmg+"</b>.","good"); }
-    else logLine("⚔️ You miss ("+atk+" vs Def "+f.def+").",""); }
+      logLine("⚔️ You hit its "+loc[0]+" ("+d+" vs "+th+"%"+(crit?" — CRIT!":"")+") for <b>"+dmg+"</b>.","good"); }
+    else logLine("⚔️ You miss ("+d+" vs "+th+"%).",""); }
   f.woundedLastRound = dealt>0;
   if(monHp(f)<=0){ logLine("☠️ The "+f.monster.name+" is slain!","good"); endCombatRemove(f, f.gold); return; }
   if(f.reaction.type==="flee"){ logLine("🌫️ The "+f.monster.name+" breaks away into the dark.",""); f.resolved=true; WORLD.selection=null; renderAll(); return; }
@@ -1316,9 +1338,9 @@ function renderCombatPanel(f){
   const packPips = f.mhp.length>1 ? " ["+f.mhp.join("/")+"]" : "";
   const abil = f.monster.abilities.length ? f.monster.abilities.map(function(a){return "<span class='tag' style='border-color:#7a3b3b'>"+a+"</span>";}).join("") : "";
   const btn=function(id,label,detail){ return "<div class='opt method-"+(id==="attack"?"combat":"check")+" "+(dead?"disabled":"")+"' data-a='"+id+"'><div class='ol'><span class='oname'>"+label+"</span></div><div class='odetail'>"+detail+"</div></div>"; };
-  let opts = btn("attack","Attack","To-hit vs Def "+f.def+" ("+fmtMod(partyCombat(ch))+"), then weapon dmg + hit location");
-  opts += btn("sneak","Sneak past","Stealth DC "+f.dc+" ("+fmtMod(skillMod(ch,"Stealth"))+") — slip out, exits open");
-  if(!f.monster.undead) opts += btn("parley","Parley","Persuasion DC "+(f.dc+1)+" ("+fmtMod(skillMod(ch,"Persuasion"))+")");
+  let opts = btn("attack","Attack","To-hit "+heroToHit(ch)+"% or under, then weapon dmg + hit location − DEF "+monsterDR(f));
+  opts += btn("sneak","Sneak past","Stealth — "+skillTN(ch,"Stealth",f.dc)+"% — slip out, exits open");
+  if(!f.monster.undead) opts += btn("parley","Parley","Persuasion — "+skillTN(ch,"Persuasion",f.dc+1)+"%");
   if(f.monster.undead && hasItem(ch,"holy_water")) opts += btn("holy","Holy Water","Destroy the undead outright");
   if(hasItem(ch,"potion_heal")) opts += btn("potion","Drink Potion","Heal — but it gets a free hit");
   opts += btn("flee","Disengage","Break off (parting blow); it stays, wounded");
@@ -1327,7 +1349,7 @@ function renderCombatPanel(f){
     "<div class='etitle'>"+pxIcon(animFrames(f.monster.sprite)[0],2)+" "+f.monster.name+packPips+"</div>"+
     "<div class='hearts' style='margin:6px 0 2px'><div class='meter hp' style='flex:1'><span style='width:"+pct+"%'></span></div><span class='hp'>"+total+"/"+f.mhpMax+"</span></div>"+
     (abil? "<div class='taglist' style='margin-bottom:6px'>"+abil+"</div>":"")+
-    "<div class='estat'>"+(dead? "<b style='color:var(--bad)'>You have fallen — roll a New Hero.</b>" : ("<b>"+f.reaction.note+"</b>"+(lightPenalty()<0?" <span style='color:var(--bad)'>🕯️ "+lightPenalty()+" dark</span>":"")))+"</div>"+
+    "<div class='estat'>"+(dead? "<b style='color:var(--bad)'>You have fallen — roll a New Hero.</b>" : ("<b>"+f.reaction.note+"</b>"+(lightPenalty()<0?" <span style='color:var(--bad)'>🕯️ "+lightPct()+"% dark</span>":"")))+"</div>"+
     fate + "<div class='opts'>"+opts+"</div>";
   Array.prototype.forEach.call(pnl.querySelectorAll("[data-a]"), function(node){ const a=node.getAttribute("data-a");
     node.addEventListener("click", function(){
@@ -1365,7 +1387,7 @@ function renderPanel(){
     "<div class='etitle'>"+thumb+" "+enc.title+"</div>"+
     "<div class='edesc'>"+enc.desc+"</div>"+
     "<div class='estat'>Choose an approach — greyed options need gear, allies, or a prior step."+
-      (lightPenalty()<0 ? " <b style='color:var(--bad)'>🕯️ Darkness: checks "+lightPenalty()+".</b>" : "")+"</div>"+
+      (lightPenalty()<0 ? " <b style='color:var(--bad)'>🕯️ Darkness: checks "+lightPct()+"%.</b>" : "")+"</div>"+
     (ch.fate>0 ? "<div class='opt' id='fateToggle' style='border-color:"+(FATE_ARMED?'var(--gold)':'var(--line)')+"'><div class='ol'><span class='oname'>🍀 Fate: "+(FATE_ARMED?"ARMED":"off")+"</span><span class='odc'>"+ch.fate+" left</span></div><div class='odetail'>Advantage on your next roll</div></div>" : "")+
     "<div class='opts'>"+rows+"</div>";
   const ft = pnl.querySelector("#fateToggle"); if(ft) ft.addEventListener("click", function(){ FATE_ARMED=!FATE_ARMED; renderPanel(); });
