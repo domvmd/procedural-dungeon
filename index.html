@@ -1339,9 +1339,11 @@ function combatAction(f, action){
       logLine("⚔️ You hit its "+loc[0]+" ("+d+" vs "+th+"%"+(crit?" — CRIT!":"")+") for <b>"+dmg+"</b>.","good"); }
     else logLine("⚔️ You miss ("+d+" vs "+th+"%).",""); }
   f.woundedLastRound = dealt>0;
-  if(monHp(f)<=0){ logLine("☠️ The "+f.monster.name+" is slain!","good"); endCombatRemove(f, f.gold); return; }
-  if(f.reaction.type==="flee"){ logLine("🌫️ The "+f.monster.name+" breaks away into the dark.",""); f.resolved=true; WORLD.selection=null; renderAll(); return; }
-  monsterStrike(f, 340);                                                                     // its counter lands after your swing
+  const slain = monHp(f)<=0;
+  if(!slain && f.reaction.type==="flee"){ logLine("🌫️ The "+f.monster.name+" breaks away into the dark.",""); f.resolved=true; WORLD.selection=null; renderAll(); return; }
+  if(slain) logLine("☠️ The "+f.monster.name+" is slain — but its dying blow still falls…","good");
+  monsterStrike(f, 340);                                                                     // simultaneous: it strikes even as it falls
+  if(slain){ endCombatRemove(f, f.gold); return; }                                           // then it drops (you still took the blow)
   if(ch.hp<=0){ renderAll(); renderCombatPanel(f); return; }
   if(hasAbil(f,"Regenerate") && monHp(f)>0 && monHp(f)<f.mhpMax){ const heal=Math.min(2,f.mhpMax-monHp(f)); for(let i=0;i<f.mhp.length;i++){ if(f.mhp[i]>0){ f.mhp[i]+=heal; break; } } logLine("🩸 The "+f.monster.name+" knits its wounds (+"+heal+").",""); }
   afterRound(f);
