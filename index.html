@@ -66,6 +66,9 @@
   .torchrow .tspare{white-space:nowrap}
   .taglist{display:flex;flex-wrap:wrap;gap:6px}
   .tag{background:var(--panel2);border:1px solid var(--stone2);border-radius:20px;padding:3px 9px;font-size:12px;display:inline-flex;align-items:center;gap:5px}
+  .statblock{display:flex;gap:6px;margin:6px 0 8px}
+  .statblock .sb{flex:1;text-align:center;background:var(--panel2);border:1px solid var(--stone2);border-radius:6px;padding:4px 6px;font-size:11.5px;letter-spacing:.5px;color:var(--muted)}
+  .statblock .sb b{display:block;font-family:'Press Start 2P',monospace;font-size:9px;color:var(--gold);margin-bottom:3px}
   .tag .qty{color:var(--gold)}
   .tag.wpn{border-color:#6b5a2e}
   .tag.ally{border-color:#2e6b53}
@@ -618,8 +621,8 @@ function skillTN(ch, skill, dc){ return clampPct(skillPct(ch,skill) + dcToDiff(d
 // Melee/ranged to-hit % = best weapon's governing ability (+ proficiency, combat allies, light).
 function heroToHit(ch){ let best=0; for(const w of ch.weapons) best=Math.max(best, abilityPct(ch,w.stat)+PROF_PCT);
   for(const a of ch.allies) if(a.type==="combat") best+=ALLY_PCT; return clampPct(best + lightPct()); }
-function monsterAV(f, atk){ return clampPct(40 + (atk!=null?atk:f.atk)*4); }  // fixed hit chance; armour mitigates the hit
-function monsterDR(f){ return Math.max(0, Math.round((f.def - 11)/1.5)); }    // old to-hit Def → D100 damage reduction (softened)
+function monsterAV(f, bonus){ return clampPct((f.av!=null?f.av:50) + (bonus||0)); }  // the monster's Attack Value % (+ situational bonus)
+function monsterDR(f){ return Math.max(0, f.def||0); }                               // DEF = flat damage reduction
 
 /* =========================================================================
    ENCOUNTERS — each method is a resolution path keyed to a stat/skill/item.
@@ -660,18 +663,18 @@ function exitMethods(edge){
   }
 }
 
-// Combat stats: hp (array = a pack of pools), def (to-hit target for the hero),
-// atk (monster's to-hit bonus vs hero AC), dmg (damage bonus), abilities.
+// Combat stat block (D100 style): hp (array = a pack of pools), av (Attack Value % — the monster
+// rolls at/under this to hit), def (DEF — damage reduction), dmg (damage bonus), abilities.
 const MONSTERS = [
-  {name:"Goblin Skirmishers", sprite:"goblin_idle_anim", undead:false, hp:[3,2,2], def:11, atk:2, dmg:0, abilities:["Pack"]},
-  {name:"Orc Warrior", sprite:"orc_warrior_idle_anim", undead:false, hp:[11], def:13, atk:4, dmg:1, abilities:[]},
-  {name:"Masked Orc", sprite:"masked_orc_idle_anim", undead:false, hp:[9], def:13, atk:5, dmg:0, abilities:["Ambush"]},
-  {name:"Cave Ogre", sprite:"ogre_idle_anim", undead:false, hp:[16], def:12, atk:5, dmg:2, abilities:["Large"]},
-  {name:"Skeleton Warband", sprite:"skelet_idle_anim", undead:true, hp:[4,3], def:12, atk:3, dmg:0, abilities:["Pack"]},
-  {name:"Wraith Necromancer", sprite:"necromancer_anim", undead:true, hp:[12], def:13, atk:4, dmg:1, abilities:["Regenerate","Ambush"]},
-  {name:"Chort Demon", sprite:"chort_idle_anim", undead:false, hp:[12], def:14, atk:5, dmg:1, abilities:["Fear"]},
-  {name:"Gelatinous Ooze", sprite:"swampy_anim", undead:false, hp:[14], def:9, atk:3, dmg:0, abilities:["Poison","Ambush"]},
-  {name:"Great Demon", sprite:"big_demon_idle_anim", undead:false, hp:[22], def:15, atk:6, dmg:2, abilities:["Fear","Large"]}
+  {name:"Goblin Skirmishers", sprite:"goblin_idle_anim", undead:false, hp:[3,2,2], av:48, def:1, dmg:0, abilities:["Pack"]},
+  {name:"Orc Warrior", sprite:"orc_warrior_idle_anim", undead:false, hp:[11], av:56, def:2, dmg:1, abilities:[]},
+  {name:"Masked Orc", sprite:"masked_orc_idle_anim", undead:false, hp:[9], av:60, def:1, dmg:0, abilities:["Ambush"]},
+  {name:"Cave Ogre", sprite:"ogre_idle_anim", undead:false, hp:[16], av:60, def:1, dmg:2, abilities:["Large"]},
+  {name:"Skeleton Warband", sprite:"skelet_idle_anim", undead:true, hp:[4,3], av:52, def:1, dmg:0, abilities:["Pack"]},
+  {name:"Wraith Necromancer", sprite:"necromancer_anim", undead:true, hp:[12], av:56, def:1, dmg:1, abilities:["Regenerate","Ambush"]},
+  {name:"Chort Demon", sprite:"chort_idle_anim", undead:false, hp:[12], av:60, def:2, dmg:1, abilities:["Fear"]},
+  {name:"Gelatinous Ooze", sprite:"swampy_anim", undead:false, hp:[14], av:52, def:0, dmg:0, abilities:["Poison","Ambush"]},
+  {name:"Great Demon", sprite:"big_demon_idle_anim", undead:false, hp:[22], av:64, def:3, dmg:2, abilities:["Fear","Large"]}
 ];
 // Sprite shown for a room feature (closed chests use a static frame).
 function featureSprite(f){
@@ -840,7 +843,7 @@ function genRoom(x,y,z){
       const gold = 10 + Math.floor(r()*40) + z*15;
       if(type==="monster"){ const pool = z>=2 ? MONSTERS : MONSTERS.slice(0,7); const mon = pool[Math.floor(r()*pool.length)];
         const mhp = mon.hp.map(function(h){ return h + Math.floor(z*0.5); });               // scale HP with depth
-        push("monster",{monster:mon, gold:gold+15, dc:baseDC+3, torches:(r()<0.3?1:0), mhp:mhp, def:mon.def+z, atk:mon.atk, dmg:mon.dmg}); }
+        push("monster",{monster:mon, gold:gold+15, dc:baseDC+3, torches:(r()<0.3?1:0), mhp:mhp, av:mon.av + z*2, def:mon.def + Math.round(z/1.5), dmg:mon.dmg}); }   // deeper foes hit a little truer and armour up
       else if(type==="trapped_chest") push("trapped_chest",{gold:gold+20, trapped:true, trapKnown:false, torches:torchDrop()});
       else if(type==="locked_chest") push("locked_chest",{gold:gold+15, torches:torchDrop()});
       else if(type==="trap") push("trap",{known:false, dc:baseDC+1});
@@ -1329,9 +1332,9 @@ function rollReaction(f){ const under=monHp(f)<=f.mhpMax/2; const r=1+Math.floor
   return {type:"attack", note:"It readies an attack."}; }
 function monsterStrike(f, delay){
   const ch=WORLD.hero; delay=delay||0; const t0=performance.now()+delay;
-  let atk = f.atk + (hasAbil(f,"Pack") ? (monMembers(f)-1) : 0);
-  if(f.reaction.type==="enrage") atk += f.reaction.bonus;
-  const av = monsterAV(f, atk), d = d100(); f.react={type:"lunge", t0:t0};                    // it rolls at/under its Attack Value
+  let avBonus = (hasAbil(f,"Pack") ? (monMembers(f)-1)*4 : 0);                                 // more of the pack pressing in
+  if(f.reaction.type==="enrage") avBonus += f.reaction.bonus*4;                                // cornered fury
+  const av = monsterAV(f, avBonus), d = d100(); f.react={type:"lunge", t0:t0};                 // it rolls at/under its Attack Value
   if(d > av){ logLine("🛡️ The "+f.monster.name+" swings and misses ("+d+" vs "+av+"%).",""); return; }
   const loc=hitLocation(), die=roll(1,6); let raw=die+loc[1]+f.dmg; if(hasAbil(f,"Large") && die<=2) raw+=2; raw=Math.max(1,raw);
   const soak=armorSoak(ch, loc[0]), dmg=Math.max(0, raw-soak);                                // armour covering the location soaks it
@@ -1388,6 +1391,7 @@ function renderCombatPanel(f){
   const total=monHp(f), pct=Math.max(0,Math.round(100*total/f.mhpMax)), dead=ch.hp<=0;
   const packPips = f.mhp.length>1 ? " ["+f.mhp.join("/")+"]" : "";
   const abil = f.monster.abilities.length ? f.monster.abilities.map(function(a){return "<span class='tag' style='border-color:#7a3b3b'>"+a+"</span>";}).join("") : "";
+  const statBlock = "<div class='statblock'><span class='sb'><b>AV</b> "+monsterAV(f)+"%</span><span class='sb'><b>DEF</b> "+monsterDR(f)+"</span><span class='sb'><b>DMG</b> +"+(f.dmg||0)+"</span></div>";
   const btn=function(id,label,detail){ return "<div class='opt method-"+(id==="attack"?"combat":"check")+" "+(dead?"disabled":"")+"' data-a='"+id+"'><div class='ol'><span class='oname'>"+label+"</span></div><div class='odetail'>"+detail+"</div></div>"; };
   let opts = btn("attack","Attack","To-hit "+heroToHit(ch)+"% or under, then weapon dmg + hit location − DEF "+monsterDR(f));
   opts += btn("sneak","Sneak past","Stealth — "+skillTN(ch,"Stealth",f.dc)+"% — slip out, exits open");
@@ -1399,6 +1403,7 @@ function renderCombatPanel(f){
   pnl.innerHTML =
     "<div class='etitle'>"+pxIcon(animFrames(f.monster.sprite)[0],2)+" "+f.monster.name+packPips+"</div>"+
     "<div class='hearts' style='margin:6px 0 2px'><div class='meter hp' style='flex:1'><span style='width:"+pct+"%'></span></div><span class='hp'>"+total+"/"+f.mhpMax+"</span></div>"+
+    statBlock+
     (abil? "<div class='taglist' style='margin-bottom:6px'>"+abil+"</div>":"")+
     "<div class='estat'>"+(dead? "<b style='color:var(--bad)'>You have fallen — roll a New Hero.</b>" : ((f.surpriseRound?"<b style='color:var(--good)'>⚡ Surprise round — your next strike is unopposed!</b><br/>":"")+"<b>"+f.reaction.note+"</b>"+(lightPenalty()<0?" <span style='color:var(--bad)'>🕯️ "+lightPct()+"% dark</span>":"")))+"</div>"+
     fate + "<div class='opts'>"+opts+"</div>";
