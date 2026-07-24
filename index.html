@@ -441,22 +441,27 @@ function makeHero(seedStr){
   const kits = [
     { name:"Rogue", sprite:"elf_m_idle_anim", prof:["Stealth","SleightOfHand","Perception","Acrobatics"],
       items:[["Thieves' Tools","thieves_tools",1],["Iron Key","key",1],["Rope (50ft)","rope",1],["Torch","torch",2],["Healing Potion","potion_heal",1]],
-      weapons:[["Shortsword","DEX","1d6"],["Dagger","DEX","1d4"]], allies:[] },
+      weapons:[["Shortsword","DEX","1d6"],["Dagger","DEX","1d4"]], allies:[],
+      armorSet:"Leather", armor:{Head:1, Body:2, Arms:1}, shield:0 },
     { name:"Fighter", sprite:"knight_m_idle_anim", prof:["Athletics","Intimidation","Perception"],
       items:[["Crowbar","crowbar",1],["Iron Key","key",1],["Torch","torch",2],["Healing Potion","potion_heal",2]],
-      weapons:[["Longsword","STR","1d8"],["Handaxe","STR","1d6"]], allies:[["Hound","combat",2]] },
+      weapons:[["Longsword","STR","1d8"],["Handaxe","STR","1d6"]], allies:[["Hound","combat",2]],
+      armorSet:"Plate", armor:{Head:3, Body:4, Arms:3, Hands:1, Legs:2, Feet:1}, shield:3 },
     { name:"Mage", sprite:"wizzard_m_idle_anim", prof:["Arcana","Investigation","Religion"],
       items:[["Scroll of Knock","scroll_knock",1],["Scroll of Dispel","scroll_dispel",1],["Torch","torch",1],["Holy Water","holy_water",1],["Healing Potion","potion_heal",1]],
-      weapons:[["Quarterstaff","STR","1d6"],["Firebolt","INT","1d10"]], allies:[] },
+      weapons:[["Quarterstaff","STR","1d6"],["Firebolt","INT","1d10"]], allies:[],
+      armorSet:"Robes", armor:{Body:1}, shield:0 },
     { name:"Ranger", sprite:"lizard_m_idle_anim", prof:["Athletics","Stealth","Perception","Investigation"],
       items:[["Grappling Hook","grapple",1],["Rope (50ft)","rope",1],["Iron Key","key",1],["Torch","torch",2]],
-      weapons:[["Longbow","DEX","1d8"],["Shortsword","DEX","1d6"]], allies:[["Wolf","combat",2]] }
+      weapons:[["Longbow","DEX","1d8"],["Shortsword","DEX","1d6"]], allies:[["Wolf","combat",2]],
+      armorSet:"Studded Leather", armor:{Head:1, Body:3, Arms:2, Legs:1}, shield:0 }
   ];
   const kit = kits[Math.floor(r()*kits.length)];
   const maxHp = 20 + con*3 + Math.floor(r()*8);
   return {
     name: kit.name+" of the Deep", cls: kit.name, sprite: kit.sprite, spriteRun: kit.sprite.replace("_idle_","_run_"), spriteHit: kit.sprite.replace("_idle_","_hit_"), spriteAtkKey: kit.sprite.replace("_idle_anim",""), level: 3, prof: 2,
     stats:stats, maxHp:maxHp, hp: maxHp, ac: 12 + mod(stats.DEX),
+    armorSet: kit.armorSet, armor: Object.assign({}, kit.armor), shield: kit.shield||0,
     proficient: new Set(kit.prof),
     inventory: kit.items.map(function(x){return {name:x[0],tag:x[1],qty:x[2]};}),
     weapons: kit.weapons.map(function(x){return {name:x[0],stat:x[1],dmg:x[2]};}),
@@ -604,8 +609,8 @@ function skillTN(ch, skill, dc){ return clampPct(skillPct(ch,skill) + dcToDiff(d
 // Melee/ranged to-hit % = best weapon's governing ability (+ proficiency, combat allies, light).
 function heroToHit(ch){ let best=0; for(const w of ch.weapons) best=Math.max(best, abilityPct(ch,w.stat)+PROF_PCT);
   for(const a of ch.allies) if(a.type==="combat") best+=ALLY_PCT; return clampPct(best + lightPct()); }
-function monsterAV(f){ const ch=WORLD.hero; return clampPct((21 - (ch.ac - f.atk))*5); }  // preserves the old hit odds
-function monsterDR(f){ return Math.max(0, f.def - 11); }           // old to-hit Def → D100 damage reduction
+function monsterAV(f, atk){ return clampPct(40 + (atk!=null?atk:f.atk)*4); }  // fixed hit chance; armour mitigates the hit
+function monsterDR(f){ return Math.max(0, Math.round((f.def - 11)/1.5)); }    // old to-hit Def → D100 damage reduction (softened)
 
 /* =========================================================================
    ENCOUNTERS — each method is a resolution path keyed to a stat/skill/item.
@@ -1005,13 +1010,15 @@ function renderSheet(){
   const ch = WORLD.hero;
   const stats = STAT_KEYS.map(function(k){ return "<div class='stat'><div class='name'>"+k+"</div><div class='val'>"+abilityPct(ch,k)+"%</div><div class='mod'>roll under</div></div>"; }).join("");
   const skillChips = Object.keys(SKILLS).map(function(s){ const prof = ch.proficient.has(s); return "<span class='skill "+(prof?'prof':'')+"'>"+s+" <b>"+skillPct(ch,s)+"%</b></span>"; }).join("");
+  const armorChips = ARMOR_SLOTS.map(function(s){ const dr=(ch.armor&&ch.armor[s])||0; return "<span class='skill "+(dr>0?'prof':'')+"'>"+s+" <b>"+(dr>0?"DR "+dr:"—")+"</b></span>"; }).join("")
+    + (ch.shield>0 ? "<span class='skill prof' style='border-color:var(--gold)'>🛡️ Shield <b>−"+ch.shield+"</b></span>" : "");
   const items = ch.inventory.length? ch.inventory.map(function(i){return "<span class='tag'>"+i.name+(i.qty>1?" <span class='qty'>×"+i.qty+"</span>":"")+"</span>";}).join("") : "<span class='skill'>— empty —</span>";
   const wpns = ch.weapons.map(function(w){ const spr = WEAPON_SPRITE[w.name]; return "<span class='tag wpn'>"+(spr?pxIcon(spr,2):"")+w.name+" <span class='qty'>"+fmtMod(attackBonus(ch,w))+"·"+w.dmg+"</span></span>"; }).join("");
   const allies = ch.allies.length? ch.allies.map(function(a){return "<span class='tag ally'>"+a.name+" <span class='qty'>+"+a.bonus+"</span></span>";}).join("") : "<span class='skill'>— none —</span>";
   const buffs = ch.buffs.length? "<div style='margin-top:6px'>"+ch.buffs.map(function(b){return "<span class='tag' style='border-color:var(--good)'>✦ "+b.name+"</span>";}).join("")+"</div>":"";
   $("#sheet").innerHTML =
     "<h2>"+pxIcon(curFrame(ch.sprite)||animFrames(ch.sprite)[0],2)+" "+ch.name+"</h2>"+
-    "<div class='hint' style='text-align:left;margin:-2px 0 8px'>Level "+ch.level+" "+ch.cls+" · Def "+ch.ac+" · Prof +"+PROF_PCT+"% · "+pxIcon("coin_anim_f0",2)+" "+ch.gold+"</div>"+
+    "<div class='hint' style='text-align:left;margin:-2px 0 8px'>Level "+ch.level+" "+ch.cls+" · 🛡️ "+ch.armorSet+" · Prof +"+PROF_PCT+"% · "+pxIcon("coin_anim_f0",2)+" "+ch.gold+"</div>"+
     "<div class='hearts'>"+heartRow(ch)+"<span class='hp'>"+ch.hp+" / "+ch.maxHp+" HP</span></div>"+
     "<div class='torchrow"+(ch.torchLit?"":" out")+"'><span class='tlabel'>"+(ch.torchLit?"🔥":"🕯️")+" Torch</span>"+
       "<div class='meter torch'><span id='torchFuel' style='width:"+(ch.torchLit?Math.round(100*Math.max(0,ch.torchFuel)/TORCH_DURATION):0)+"%'></span></div>"+
@@ -1019,6 +1026,7 @@ function renderSheet(){
     "<div class='hint' style='text-align:left;margin:2px 0 4px'>🍀 Fate ×"+ch.fate+" &nbsp;·&nbsp; ✚ Life ×"+ch.life+(ch.poison>0?" &nbsp;·&nbsp; <span style='color:var(--bad)'>☠️ Poison "+ch.poison+"</span>":"")+"</div>"+
     "<div class='stats'>"+stats+"</div>"+ buffs +
     "<h3>Skills</h3><div class='skills'>"+skillChips+"</div>"+
+    "<h3>Armour</h3><div class='skills'>"+armorChips+"</div>"+
     "<h3>Inventory</h3><div class='taglist'>"+items+"</div>"+
     "<h3>Weapons</h3><div class='taglist'>"+wpns+"</div>"+
     "<h3>Allies</h3><div class='taglist'>"+allies+"</div>";
@@ -1271,6 +1279,10 @@ canvas.addEventListener("click", function(e){
 /* ---- combat: round-based, monster reactions, hit locations, abilities ---- */
 const HITLOC = [null,["head",2],["back",2],["torso",1],["arms",0],["hands",0],["arm",0],["grip",0],["waist",0],["legs",-1],["feet",-1]];
 function hitLocation(){ return HITLOC[1+Math.floor(Math.random()*10)]; }
+// Armour: each hit location maps to a body slot; that slot's DR plus any shield deflection is soaked off incoming damage.
+const LOC_SLOT = { head:"Head", back:"Body", torso:"Body", waist:"Body", arms:"Arms", arm:"Arms", hands:"Hands", grip:"Hands", legs:"Legs", feet:"Feet" };
+const ARMOR_SLOTS = ["Head","Body","Arms","Hands","Legs","Feet"];
+function armorSoak(ch, locName){ const slot=LOC_SLOT[locName]||"Body"; return ((ch.armor&&ch.armor[slot])||0) + (ch.shield||0); }
 function monHp(f){ return f.mhp.reduce(function(a,b){return a+b;},0); }
 function monMembers(f){ return f.mhp.filter(function(h){return h>0;}).length; }
 function hasAbil(f,a){ return f.monster.abilities.indexOf(a)>=0; }
@@ -1289,12 +1301,14 @@ function monsterStrike(f, delay){
   const ch=WORLD.hero; delay=delay||0; const t0=performance.now()+delay;
   let atk = f.atk + (hasAbil(f,"Pack") ? (monMembers(f)-1) : 0);
   if(f.reaction.type==="enrage") atk += f.reaction.bonus;
-  const av = clampPct((21 - (ch.ac - atk))*5), d = d100(); f.react={type:"lunge", t0:t0};    // it rolls at/under its Attack Value
+  const av = monsterAV(f, atk), d = d100(); f.react={type:"lunge", t0:t0};                    // it rolls at/under its Attack Value
   if(d > av){ logLine("🛡️ The "+f.monster.name+" swings and misses ("+d+" vs "+av+"%).",""); return; }
-  const loc=hitLocation(), die=roll(1,6); let dmg=die+loc[1]+f.dmg; if(hasAbil(f,"Large") && die<=2) dmg+=2; dmg=Math.max(1,dmg);
-  ch.hp -= dmg; logLine("💥 The "+f.monster.name+" strikes your "+loc[0]+" for <b>"+dmg+"</b>.","bad");
+  const loc=hitLocation(), die=roll(1,6); let raw=die+loc[1]+f.dmg; if(hasAbil(f,"Large") && die<=2) raw+=2; raw=Math.max(1,raw);
+  const soak=armorSoak(ch, loc[0]), dmg=Math.max(0, raw-soak);                                // armour covering the location soaks it
   const t=monTile(f), ax=HERO_TILE[0]-t.c, ay=HERO_TILE[1]-t.r, L=Math.hypot(ax,ay)||1;
-  ch.hurtAnim={t0:t0, dur:300, dx:ax/L, dy:ay/L};                                            // hero flinches away
+  ch.hurtAnim={t0:t0, dur:300, dx:ax/L, dy:ay/L};                                             // hero flinches away
+  if(dmg<=0){ logLine("🛡️ The "+f.monster.name+" strikes your "+loc[0]+" — your armour turns it aside ("+raw+" − "+soak+").",""); return; }
+  ch.hp -= dmg; logLine("💥 The "+f.monster.name+" strikes your "+loc[0]+" for <b>"+dmg+"</b>"+(soak>0?" <span style='color:var(--muted)'>(armour −"+soak+")</span>":"")+".","bad");
   if(hasAbil(f,"Poison") && die<=2){ ch.poison+=1; logLine("☠️ Venom! Poison rises to "+ch.poison+".","bad"); }
   heroDeathCheck();
 }
