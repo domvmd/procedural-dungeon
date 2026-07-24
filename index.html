@@ -1301,18 +1301,27 @@ function rollWeapon(ch){ let best={n:1,s:6}, bestAvg=3.5; for(const w of ch.weap
 function heroDeathCheck(){ const ch=WORLD.hero; if(ch.hp>0) return false;
   if(ch.life>0){ ch.life--; ch.hp=ch.maxHp; ch.poison=0; logLine("✨ A <b>Life</b> is spent — you cheat death and rise at full health! ("+ch.life+" left)","gold"); return false; }
   ch.hp=0; logLine("<b>You have fallen for the last time…</b> Roll a New Hero.","bad"); return true; }
-function startCombat(f){ if(f.started) return; f.started=true; f.round=0; f.mhpMax=monHp(f); f.woundedLastRound=false; f.reaction=rollReaction(f); resolveSurprise(f); }
-// On first engagement, an Awareness (Perception) check decides who gets the drop. Ambusher
-// monsters (assassins/lurkers) are harder to spot; failing the check lets them strike from hiding.
+function startCombat(f){ if(f.started) return; f.started=true; f.round=0; f.mhpMax=monHp(f); f.woundedLastRound=false; f.reaction=rollReaction(f); }
+// First engagement runs through the event popup: an Awareness (Perception) roll-under decides who
+// gets the drop. Ambusher monsters (assassins/lurkers) are harder to spot; failing lets them strike
+// from hiding. The resolver is invoked from beginEncounter so the roll + result appear in the window.
 function resolveSurprise(f){
   const ch=WORLD.hero; if(!ch || ch.hp<=0) return;
   const ambusher = hasAbil(f,"Ambush");
   const tn = clampPct(skillPct(ch,"Perception") + dcToDiff(f.dc + (ambusher?3:0)) + lightPct());
   const d = d100();
   if(ambusher){
-    if(d>tn){ f.surprise="monster"; logLine("🗡️ The "+f.monster.name+" strikes from hiding — <b>ambush!</b> (Awareness "+d+" vs "+tn+"%)","bad"); monsterStrike(f, 150); renderSheet(); renderLog(); }
+    if(d>tn){ f.surprise="monster"; logLine("🗡️ The "+f.monster.name+" strikes from hiding — <b>ambush!</b> (Awareness "+d+" vs "+tn+"%)","bad"); monsterStrike(f, 150); }
     else logLine("👁️ You sense the ambush and keep your guard (Awareness "+d+" vs "+tn+"%).","good");
   } else if(d<=tn){ f.surprise="hero"; f.surpriseRound=true; logLine("👁️ You spot it first — a <b>surprise round</b>! (Awareness "+d+" vs "+tn+"%)","good"); }
+  else logLine("You square off — neither side gains the edge (Awareness "+d+" vs "+tn+"%).","");
+}
+// Open a fight: prompt an Awareness roll in the popup, resolve surprise/ambush, then show combat.
+function beginEncounter(f){
+  const ambusher = hasAbil(f,"Ambush");
+  runAction({ rolls:true, title:f.monster.name, thumb:pxIcon(animFrames(f.monster.sprite)[0],2),
+    desc:(ambusher ? "Something lurks here — <b>Awareness</b> check to avoid an ambush" : "<b>Awareness</b> — spot it before it can react") },
+    function(){ startCombat(f); resolveSurprise(f); renderCombatPanel(f); renderSheet(); });
 }
 function rollReaction(f){ const under=monHp(f)<=f.mhpMax/2; const r=1+Math.floor(Math.random()*10);
   if(r===10 || (r===9 && f.woundedLastRound)) return {type:"flee", note:"It edges toward an escape."};
@@ -1412,7 +1421,10 @@ function panelThumb(kind, sel){
 function renderPanel(){
   const pnl = $("#panel"), sel = WORLD.selection;
   if(!sel){ pnl.innerHTML = "<div class='empty'>Nothing selected.<br/>Choose a door or object in the room.</div>"; return; }
-  if(sel.kind==="feature" && sel.f.type==="monster"){ renderCombatPanel(sel.f); return; }   // round-based combat
+  if(sel.kind==="feature" && sel.f.type==="monster"){                                        // round-based combat
+    const mf=sel.f;
+    if(!mf.started && WORLD.hero.hp>0){ beginEncounter(mf); return; }                         // first engagement → Awareness roll popup
+    renderCombatPanel(mf); return; }
   const ch = WORLD.hero; let enc;
   if(sel.kind==="exit"){ const e = exitMethods(sel.info); enc = {icon:e.icon, title:e.title+" · "+sel.dir, desc:e.desc, methods:e.methods}; }
   else { enc = featureEncounter(sel.f); }
